@@ -15,14 +15,20 @@ something it describes.
 bun install
 bun test              # all tests
 bun run typecheck     # tsc --noEmit
-bun run todos         # TUI
-bun run todos:cli     # CLI
-bun run todos:mcp     # MCP server (stdio)
+bun run <app>         # TUI, e.g. bun run todos
+bun run <app>:cli     # CLI
+bun run <app>:mcp     # MCP server (stdio)
 ```
 Run `bun test` and `bun run typecheck` before calling work done.
 
+## Apps
+Each app has its own `README.md` (user-facing docs: keys, CLI usage, MCP tools) and `CLAUDE.md`
+(app-specific notes). Root `README.md` only lists the apps and shared setup.
+- `todos/`: daily task tracker. See `todos/CLAUDE.md`.
+
 ## Layout
-Each app is a directory of Bun workspace packages (`workspaces` in root `package.json`):
+Each app is a directory of Bun workspace packages (`workspaces` in root `package.json`; add the new
+app's glob there, e.g. `"<app>/*"`, plus `<app>`, `<app>:cli`, `<app>:mcp` scripts):
 
 ```
 <app>/
@@ -33,45 +39,32 @@ Each app is a directory of Bun workspace packages (`workspaces` in root `package
 ```
 - Adapters (`cli`, `mcp`, `tui`) stay thin: business rules live in `core` so all three behave the same.
   New operations go in core first, then get exposed in each adapter as appropriate.
-- Packages import each other by workspace name, e.g. `@corgiops/todos-core`. Source is consumed
+- Packages are named `@corgiops/<app>-<package>` and import each other by that name. Source is consumed
   directly (`exports: ./src/index.ts`); no build step.
 - Code shared across apps goes in a new top-level `shared/` workspace once a second app needs it.
 
 ## Data
 - App data lives under `~/.corgiops/<app>/` (e.g. `~/.corgiops/todos/todos.json`), created on first use.
   Root is overridable with `CORGIOPS_HOME`.
-- Files carry `schemaVersion`. When changing the format: bump it, add a step to `migrate()` in
-  `core/src/schema.ts`, and add a migration test. Old files are upgraded on read, persisted on next write.
-- Templates live in their own `templates.json` (own `schemaVersion` and lock), owned by `TodoStore` too.
-- Writes go through `JsonFile.mutate` (`core/src/jsonFile.ts`): lockfile + atomic rename, and the whole
-  file is validated before writing. Keep it that way; TUI, CLI and agents (via MCP) may write concurrently.
-- Dates are local `YYYY-MM-DD` strings (`core/src/dates.ts`); timestamps are ISO strings.
-- User-facing errors are thrown as `TodoError`; adapters show these and let other errors crash.
-
-## Todos app
-- UI spec written by the user: `todos/tui/README.md`. Treat it as the source of truth for TUI behaviour;
-  ask before deviating. User-facing docs (keys, CLI usage, MCP tools): root `README.md`.
-- Views (`completed`, `current`, `upcoming`) are defined in `core/src/views.ts` and shared by all adapters.
-- Custom fields: schema and lock rule in `core/src/fields.ts`. Names are unique per task/template (the key).
-  `update({ fields })` replaces the list; `setField` / `removeField` change one by name. Non-editable fields
-  are locked once saved on a task, removable; never locked on templates.
-- Templates: `core/src/templates.ts`; `applyTemplate` holds the override rule used by the TUI picker and
-  `addFromTemplate`. Templates are referred to by id or name (`TemplateRef`).
-- TUI task and template details share `tui/src/DetailsForm.tsx` (title, custom fields, description, keys);
-  each passes its own top row. Date inputs use `DateInput.tsx`, which masks typing to `YYYY-MM-DD`.
-- Clipboard / browser access goes through the injected `System` (`tui/src/system.ts`); tests pass a fake.
+- Files carry `schemaVersion`. When changing the format: bump it, add a migration step, and add a
+  migration test. Old files are upgraded on read, persisted on next write.
+- Writes take a lockfile, validate the whole file, then atomically rename into place (see
+  `todos/core/src/jsonFile.ts`). TUI, CLI and agents (via MCP) may write concurrently.
+- Dates are local `YYYY-MM-DD` strings; timestamps are ISO strings.
+- User-facing errors are thrown as one app-level error class (e.g. `TodoError`); adapters show these
+  and let other errors crash.
 
 ## Gotchas
 - **Never let tests touch the real `~/.corgiops`.** `bunfig.toml` preloads `test-setup.ts`, which points
-  `CORGIOPS_HOME` at a temp dir. Tests should still pass an explicit temp `dir` to `TodoStore`.
-- Inject the clock (`new TodoStore({ dir, now })`) in tests that depend on "today". Use local-noon dates
+  `CORGIOPS_HOME` at a temp dir. Tests should still pass an explicit temp `dir` to the app's store.
+- Inject the clock into stores in tests that depend on "today". Use local-noon dates
   (`new Date(2026, 9, 3, 12)`) so results don't depend on time zone.
 - Callers (CLI especially) pass optional fields as explicit `undefined`. Core must treat that as "not
   given", never spread it over defaults.
 - TUI tests use `testRender` from `@opentui/react/test-utils`, then set
   `globalThis.IS_REACT_ACT_ENVIRONMENT = false` because store I/O resolves outside `act()`.
-  Wait for UI with the time-based `see()` helper in `App.test.tsx`, not `waitForFrame` (which counts
-  render passes and doesn't give async work time). Wait for text that only exists in the target screen;
+  Wait for UI with a time-based `see()` helper (see `todos/tui/src/App.test.tsx`), not `waitForFrame`
+  (which counts render passes and doesn't give async work time). Wait for text that only exists in the target screen;
   e.g. a task title is visible in both the details form and the list.
 - In TUI forms read values from widget refs (`input.value`, `textarea.plainText`) at submit time, not from
   React state, to avoid stale values right after typing.
