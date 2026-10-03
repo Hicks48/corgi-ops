@@ -38,7 +38,9 @@ test("exposes the task tools", async () => {
     "list_tasks",
     "postpone_task",
     "pull_task_to_today",
+    "remove_task_field",
     "reopen_task",
+    "set_task_field",
     "set_task_status",
     "update_task",
   ])
@@ -72,4 +74,16 @@ test("domain errors come back as tool errors", async () => {
   expect(await call("get_task", { id: 99 })).toEqual({ isError: true, text: "task 99 not found" })
   const blank = await call("add_task", { title: " ", description: "x" })
   expect(blank).toEqual({ isError: true, text: "title is required" })
+})
+
+test("custom fields", async () => {
+  const fields = [{ type: "link", name: "PR", value: "https://example.com", editable: false }]
+  const added = JSON.parse((await call("add_task", { title: "Review", description: "x", fields })).text)
+  expect(added.fields).toEqual([{ type: "link", name: "PR", value: "https://example.com", editable: false, visibleOnLists: false }])
+
+  expect(await call("set_task_field", { id: 1, name: "PR", value: "y" })).toEqual({ isError: true, text: 'field "PR" is not editable' })
+  const set = JSON.parse((await call("set_task_field", { id: 1, name: "Due", type: "date", value: "2026-10-09" })).text)
+  expect(set.fields.map((f: { name: string }) => f.name)).toEqual(["PR", "Due"])
+  const removed = JSON.parse((await call("remove_task_field", { id: 1, name: "PR" })).text)
+  expect(removed.fields).toEqual([{ type: "date", name: "Due", value: "2026-10-09", editable: true, visibleOnLists: false }])
 })

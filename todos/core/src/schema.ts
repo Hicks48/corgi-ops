@@ -1,7 +1,8 @@
 import { z } from "zod"
 import { toLocalDate } from "./dates.ts"
+import { FieldListSchema } from "./fields.ts"
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 export const STATUSES = ["todo", "in-progress", "done"] as const
 export const StatusSchema = z.enum(STATUSES)
@@ -25,6 +26,8 @@ export const TaskSchema = z.object({
   targetDate: localDate("targetDate"),
   /** Set only while status is done. */
   completionDate: localDate("completionDate").optional(),
+  /** User-defined fields, in display order. */
+  fields: FieldListSchema,
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 })
@@ -36,11 +39,13 @@ export const NewTaskSchema = z.object({
   status: StatusSchema.default("todo"),
   targetDate: localDate("targetDate").optional(),
   completionDate: localDate("completionDate").optional(),
+  fields: FieldListSchema.optional(),
 })
 export type NewTask = z.input<typeof NewTaskSchema>
 
+/** `fields` replaces the whole list. */
 export const TaskPatchSchema = NewTaskSchema.extend({ status: StatusSchema }).partial()
-export type TaskPatch = z.infer<typeof TaskPatchSchema>
+export type TaskPatch = z.input<typeof TaskPatchSchema>
 
 export const TodoFileSchema = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
@@ -51,14 +56,11 @@ export type TodoFile = z.infer<typeof TodoFileSchema>
 
 export const emptyTodoFile = (): TodoFile => ({ schemaVersion: SCHEMA_VERSION, nextId: 1, tasks: [] })
 
-/** Upgrades older file formats in memory; the upgraded form is persisted on the next write. */
-export const migrate = (raw: unknown): unknown => {
-  const file = raw as { schemaVersion?: number; tasks?: Record<string, unknown>[] }
-  if (file?.schemaVersion !== 1 || !Array.isArray(file.tasks)) return raw
-  return {
-    ...file,
-    schemaVersion: 2,
-    tasks: file.tasks.map((task) => {
+type RawFile = { schemaVersion?: number; tasks?: Record<string, unknown>[] }
+
+const STEPS: Record<number, (tasks: Record<string, unknown>[]) => Record<string, unknown>[]> = {
+  1: (tasks) =>
+    tasks.map((task) => {
       const status = task.status === "in_progress" ? "in-progress" : task.status
       return {
         ...task,
@@ -67,5 +69,15 @@ export const migrate = (raw: unknown): unknown => {
         completionDate: status === "done" ? toLocalDate(new Date(task.updatedAt as string)) : undefined,
       }
     }),
+  2: (tasks) => tasks.map((task) => ({ ...task, fields: [] })),
+}
+
+/** Upgrades older file formats in memory; the upgraded form is persisted on the next write. */
+export const migrate = (raw: unknown): unknown => {
+  let file = raw as RawFile
+  for (;;) {
+    const step = file?.schemaVersion === undefined ? undefined : STEPS[file.schemaVersion]
+    if (!step || !Array.isArray(file.tasks)) return file
+    file = { ...file, schemaVersion: file.schemaVersion! + 1, tasks: step(file.tasks) }
   }
 }

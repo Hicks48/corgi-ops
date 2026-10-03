@@ -1,12 +1,12 @@
 # TODOS TUI
 
 ## USAGE
-The main views of the TUI are the list views presented below. When the TUI is opened it opens the current tasks list view to have the user ready for the days tasks.
+The main views of the TUI are the list views presented below. When the TUI is opened it opens the current tasks list view to have the user ready for the day's tasks.
 
 ### List views
 There are three main list views for managing the tasks: completed tasks, current tasks and upcoming tasks. All the list views are sorted top to bottom scrollable lists of the tasks. Each view has a different set of information and actions shown on the task to best support the purpose of the view.
 
-On each list view there is a sticking footer which shows instructions how to move between the lists by using `[]` keys to move `<->` to move between the list views and actions available per view. There is also a sticking header which shows the name of the list view: `Completed Tasks`, `Current Tasks` and `Upcoming Tasks`.
+On each list view there is a sticky footer which shows instructions on how to move between the list views using the `[` `]` keys (or `←` `→`) and the actions available per view. There is also a sticky header which shows the name of the list view: `Completed Tasks`, `Current Tasks` and `Upcoming Tasks`.
 
 #### Current Tasks
 The current task list presents the non completed (status is not `done`) tasks to be worked on today (`target-date` is today or earlier). The tasks are sorted by the status showing `in-progress` ones at the top and `todo` ones at the bottom. The data shown for each task on this view is geared towards getting the task done or moving it out of today for the day.
@@ -14,6 +14,7 @@ The current task list presents the non completed (status is not `done`) tasks to
 For each task the following fields are shown:
 * Status (`todo` or `in-progress` on this view)
 * Title (truncated to 1 line)
+* Custom fields (truncated to 1 line, only the ones which have `visible-on-lists` as `true`)
 * Description (truncated to 3 lines)
 * Common action buttons:
     * +1 day (pushes target day by 1 day)
@@ -24,16 +25,18 @@ The upcoming tasks view shows all the tasks (status is not `done`) which are com
 For each task the following fields are shown:
 * Status (`todo` or `in-progress` on this view)
 * Title (truncated to 1 line)
+* Custom fields (truncated to 1 line, only the ones which have `visible-on-lists` as `true`)
 * Description (truncated to 3 lines)
 * Common action buttons:
     * Pull to today (moves the tasks `target-date` to today moving it to the current tasks view)
 
 #### Completed Tasks
-The completed tasks view shows all the completed tasks (status is `done`) sorted by their `completion-date` having the eaerliest `completion-date` at the top. The completed task list allows for viewing completed tasks and repopening them if needed.
+The completed tasks view shows all the completed tasks (status is `done`) sorted by their `completion-date` having the most recently completed task (latest `completion-date`) at the top. The completed task list allows for viewing completed tasks and reopening them if needed.
 
 For each task the following fields are shown:
 * Status (only `done` on this view)
 * Title (truncated to 1 line)
+* Custom fields (truncated to 1 line, only the ones which have `visible-on-lists` as `true`)
 * Description (truncated to 3 lines)
 * Common action buttons:
     * Reopen (Marks the status of the task as `in-progress`, unsets the `completion-date` and sets the `target-date` to today)
@@ -41,9 +44,33 @@ For each task the following fields are shown:
 ### Task Details View
 The task details view can be entered into from any view. This same view can be used for also editing the task.
 
-The following information is displayd:
+The following information is displayed:
 * Status (editable)
 * Completion date (only present if status is `done`, only editable if status is `done`)
 * Target Date (editable)
 * Title (not truncated, editable)
+* All custom fields (not truncated, editable)
 * Description (not truncated, editable)
+* Created timestamp (not editable)
+* Updated at timestamp (not editable)
+
+#### Custom Fields
+It is possible to add custom fields to the tasks for having more structure than just title and description. A `type` of a custom field defines which properties and options there are available for the field in addition to its `value`. There are following types available in the app for custom fields:
+
+* `text`: A free text field. Has a button to copy to clipboard on task details and list views and the following options:
+    * `name: string`: Name of the field. Can not be empty.
+    * `editable: boolean`: Specifies if the field can be modified after task creation. Default `true`.
+    * `visible-on-lists: boolean`: Specifies if field is shown on the list views (truncated if needed). Default `false`.
+    * `textbox: boolean`: Specifies if is multiline textbox or a single line. Default `true` indicating a textbox.
+* `link`: A single line text presenting a link. Has buttons to open the link in default browser and copy to clipboard on task details and list views. Has the following options:
+    * `name: string`: Name of the field. Can not be empty.
+    * `editable: boolean`: Specifies if the field can be modified after task creation. Default `true`.
+    * `visible-on-lists: boolean`: Specifies if field is shown on the list views (truncated if needed). Default `false`.
+* `date`: A date field which provides format `yyyy-mm-dd`. Has a button to copy to clipboard on task details and list views and the following options:
+    * `name: string`: Name of the field. Can not be empty.
+    * `editable: boolean`: Specifies if the field can be modified after task creation. Default `true`.
+    * `visible-on-lists: boolean`: Specifies if field is shown on the list views (truncated if needed). Default `false`.
+* `timestamp`: A timestamp field which provides ISO format. Has a button to copy to clipboard on task details and list views and the following options:
+    * `name: string`: Name of the field. Can not be empty.
+    * `editable: boolean`: Specifies if the field can be modified after task creation. Default `true`.
+    * `visible-on-lists: boolean`: Specifies if field is shown on the list views (truncated if needed). Default `false`.

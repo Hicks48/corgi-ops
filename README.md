@@ -25,9 +25,16 @@ todos/
 
 ## Todos
 Tasks have a required title and description, a status (`todo`, `in-progress`, `done`), a target
-date (the day it's planned for) and, once done, a completion date. Data lives in
+date (the day it's planned for) and, once done, a completion date. Tasks can also carry custom fields
+(see below). Data lives in
 `~/.corgiops/todos/todos.json` (created on first use). Set `CORGIOPS_HOME` to use a different root
 than `~/.corgiops`.
+
+Custom fields have a `name` (unique per task), a `type` and a `value`:
+- `text` (free text; `textbox: false` for a single line), `link` (URL), `date` (`YYYY-MM-DD`),
+  `timestamp` (ISO 8601). Values may be empty.
+- `editable` (default `true`): `false` locks the field once saved. It can still be removed.
+- `visibleOnLists` (default `false`): show it (one line) on the TUI list views.
 
 Views:
 - **Current**: not done, target date today or earlier. In-progress first.
@@ -44,7 +51,7 @@ List views:
 
 | Key | Action |
 | --- | --- |
-| `[` `]` | Previous / next view (Completed, Current, Upcoming) |
+| `[` `]` / `←` `→` | Previous / next view (Completed, Current, Upcoming) |
 | `↑` `↓` / `k` `j` | Select task |
 | `enter` | Open task details |
 | `a` | Add task (todo, target today) |
@@ -53,10 +60,17 @@ List views:
 | `r` | Completed: reopen |
 | `q` | Quit |
 
-Mouse: click a tab to switch view, a card to select it (click again to open), a `[ button ]` to run it.
+Mouse: click a tab to switch view, a card to select it (click again to open), a `[ button ]` to run it
+(e.g. `[ copy ]` / `[ open ]` on custom fields).
 
-Task details: `tab` / `shift+tab` move between fields, `←` `→` change status, `ctrl+s` save,
+Task details: `tab` / `shift+tab` or a click move between fields, `←` `→` change status, `ctrl+s` save,
 `esc` back without saving, `ctrl+d` delete (asks to confirm). Created/updated times are shown read-only.
+Custom fields: `ctrl+n` new field, and on a focused field `ctrl+y` copy, `ctrl+o` open (links),
+`ctrl+x` remove. Field changes are saved with `ctrl+s` like everything else.
+
+On macOS keyboard layouts where `[` `]` need `option` (e.g. Finnish `option+8`), Terminal.app's
+"Use Option as Meta key" setting makes `option+8` arrive as `meta+8` instead of `[`. Use `←` `→` or turn
+that setting off (Settings > Profiles > Keyboard).
 
 The views reload when another process (CLI, MCP server) changes the file.
 
@@ -71,11 +85,15 @@ bun run todos:cli postpone <id>
 bun run todos:cli pull <id>
 bun run todos:cli reopen <id>
 bun run todos:cli rm <id>
+bun run todos:cli field set <id> --name <name> [--type text|link|date|timestamp] [--value <text>]
+                  [--editable true|false] [--visible-on-lists true|false] [--textbox true|false]
+bun run todos:cli field rm <id> <name>
 ```
+`field set` adds the field or changes the one with that name; unspecified options keep their values.
 
 ### MCP server
-Tools: `list_tasks`, `get_task`, `add_task`, `update_task`, `set_task_status`, `postpone_task`,
-`pull_task_to_today`, `reopen_task`, `delete_task`.
+Tools: `list_tasks`, `get_task`, `add_task` (accepts `fields`), `update_task`, `set_task_field`,
+`remove_task_field`, `set_task_status`, `postpone_task`, `pull_task_to_today`, `reopen_task`, `delete_task`.
 
 Register with Claude Code:
 

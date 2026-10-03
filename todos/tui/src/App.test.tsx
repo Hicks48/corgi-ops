@@ -5,17 +5,23 @@ import { join } from "node:path"
 import { testRender } from "@opentui/react/test-utils"
 import { formatLocalDateTime, TodoStore } from "@corgiops/todos-core"
 import { App } from "./App.tsx"
+import type { System } from "./system.ts"
 
 let root: string
 let store: TodoStore
 let ui: Awaited<ReturnType<typeof testRender>>
 let exited = false
+let effects: string[] = []
+const system: System = {
+  copy: async (text) => void effects.push(`copy ${text}`),
+  open: async (url) => void effects.push(`open ${url}`),
+}
 
 // Local noon, so "today" is stable regardless of time zone.
 const now = () => new Date(2026, 9, 3, 12)
 
 const mount = async () => {
-  ui = await testRender(<App store={store} onExit={() => (exited = true)} />, { width: 80, height: 30 })
+  ui = await testRender(<App store={store} system={system} onExit={() => (exited = true)} />, { width: 80, height: 30 })
   // Store calls resolve outside act(); let React schedule those updates normally.
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false
 }
@@ -55,6 +61,7 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "corgiops-"))
   store = new TodoStore({ dir: join(root, "todos"), now })
   exited = false
+  effects = []
 })
 
 afterEach(async () => {
@@ -102,6 +109,16 @@ test("[ and ] switch between views", async () => {
   await see("Nothing on for today")
   ui.mockInput.pressKey("[")
   expect(await see("Bathe corgi")).toContain("[ Reopen ]")
+})
+
+test("left and right arrows switch views too", async () => {
+  await store.add({ title: "Groom corgi", description: "Later", targetDate: "2026-10-09" })
+  await mount()
+  await see("Nothing on for today")
+  ui.mockInput.pressArrow("right")
+  await see("Groom corgi")
+  ui.mockInput.pressArrow("left")
+  await see("Nothing on for today")
 })
 
 test("view actions: +1 day, pull to today, reopen", async () => {
@@ -153,6 +170,149 @@ test("action buttons, cards and tabs respond to the mouse", async () => {
   const title = locate("Walk corgi")
   await ui.mockMouse.click(title.x, title.y)
   await see("Task #1")
+})
+
+test("clicking a card selects it", async () => {
+  await store.add({ title: "Walk corgi", description: "Around the block" })
+  await store.add({ title: "Feed corgi", description: "Kibble" })
+  await mount()
+  await see("Feed corgi")
+
+  const desc = locate("Kibble")
+  await ui.mockMouse.click(desc.x, desc.y)
+  await settle()
+  ui.mockInput.pressEnter()
+  expect(await see("Task #2")).toContain("Kibble")
+})
+
+test("lists show visible custom fields with copy / open buttons", async () => {
+  await store.add({
+    title: "Review PR",
+    description: "Check it",
+    fields: [
+      { type: "link", name: "PR", value: "https://example.com/1", visibleOnLists: true },
+      { type: "text", name: "Notes", value: "first\nsecond", visibleOnLists: true },
+      { type: "text", name: "Secret", value: "hidden" },
+    ],
+  })
+  await mount()
+  const frame = await see("PR: https://example.com/1")
+  expect(frame).toContain("Notes: first second")
+  expect(frame).not.toContain("hidden")
+
+  const pr = locate("PR: https://example.com/1")
+  const row = ui.captureCharFrame().split("\n")[pr.y]!
+  await ui.mockMouse.click(row.indexOf("[ open ]") + 2, pr.y)
+  await see("Opened PR")
+  await ui.mockMouse.click(row.indexOf("[ copy ]") + 2, pr.y)
+  await see("Copied PR")
+  expect(effects).toEqual(["open https://example.com/1", "copy https://example.com/1"])
+})
+
+test("clicking a field in the details view focuses it", async () => {
+  await store.add({ title: "Walk corgi", description: "Around the block" })
+  await mount()
+  await see("Walk corgi")
+  ui.mockInput.pressEnter()
+  await see("Task #1")
+
+  const target = locate("2026-10-03")
+  await ui.mockMouse.click(target.x + 2, target.y)
+  await settle()
+  ui.mockInput.pressKey("END")
+  ui.mockInput.pressKey("BACKSPACE")
+  await ui.mockInput.typeText("5")
+  const description = locate("Around the block")
+  await ui.mockMouse.click(description.x + 3, description.y + 1)
+  await settle()
+  ui.mockInput.pressKey("END")
+  await ui.mockInput.typeText("!")
+  save()
+  await see("[ Pull to today ]")
+  expect(await store.get(1)).toMatchObject({ targetDate: "2026-10-05", description: "Around the block!" })
+})
+
+test("adds, edits and removes custom fields in the details view", async () => {
+  await store.add({ title: "Walk corgi", description: "Around the block" })
+  await mount()
+  await see("Walk corgi")
+  ui.mockInput.pressEnter()
+  await see("Task #1")
+
+  ui.mockInput.pressKey("n", { ctrl: true })
+  await see("New field")
+  ui.mockInput.pressEnter()
+  await see("field name is required")
+  await ui.mockInput.typeText("Route")
+  ui.mockInput.pressTab({ shift: true }) // type
+  await settle()
+  ui.mockInput.pressArrow("right") // link
+  await see("‹ link ›")
+  ui.mockInput.pressTab() // name
+  await settle()
+  ui.mockInput.pressTab() // editable
+  await settle()
+  ui.mockInput.pressKey(" ")
+  await see("[ ] editable")
+  ui.mockInput.pressTab() // visible on lists
+  await settle()
+  ui.mockInput.pressKey(" ")
+  await see("[x] visible on lists")
+  ui.mockInput.pressEnter()
+  await gone("New field")
+  await see("Route · link")
+
+  // The new field has focus; a non-editable field can be filled in until it is saved.
+  await ui.mockInput.typeText("https://maps.example/park")
+  ui.mockInput.pressKey("y", { ctrl: true })
+  await see("Copied Route")
+  expect(effects).toEqual(["copy https://maps.example/park"])
+  save()
+
+  expect(await see("Route: https://maps.example/park")).toContain("[ open ]")
+  expect((await store.get(1)).fields).toEqual([
+    { type: "link", name: "Route", value: "https://maps.example/park", editable: false, visibleOnLists: true },
+  ])
+
+  // Locked now: shown read-only, but it can be removed.
+  ui.mockInput.pressEnter()
+  await see("Route · link · locked")
+  const route = locate("https://maps.example/park")
+  await ui.mockMouse.click(route.x, route.y)
+  await see("ctrl+x remove field")
+  ui.mockInput.pressKey("x", { ctrl: true })
+  await gone("Route · link")
+  save()
+  await see("[ +1 day ]")
+  expect((await store.get(1)).fields).toEqual([])
+})
+
+test("editable custom fields save their typed value", async () => {
+  await store.add({
+    title: "Walk corgi",
+    description: "Around the block",
+    fields: [{ type: "date", name: "Vet", value: "2026-10-09" }],
+  })
+  await mount()
+  await see("Walk corgi")
+  ui.mockInput.pressEnter()
+  await see("Vet · date")
+  ui.mockInput.pressTab() // title -> Vet
+  await settle()
+  ui.mockInput.pressKey("END")
+  ui.mockInput.pressKey("BACKSPACE")
+  await ui.mockInput.typeText("8")
+  save()
+  await see("[ +1 day ]")
+  expect((await store.get(1)).fields[0]!.value).toBe("2026-10-08")
+
+  ui.mockInput.pressEnter()
+  await see("Vet · date")
+  ui.mockInput.pressTab()
+  await settle()
+  await ui.mockInput.typeText("x")
+  save()
+  await see("date fields must be YYYY-MM-DD")
 })
 
 test("adds a task from any view with todo / today defaults", async () => {

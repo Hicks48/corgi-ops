@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
-import { StatusSchema, TodoError, TodoStore, VIEWS } from "@corgiops/todos-core"
+import { FIELD_TYPES, StatusSchema, TodoError, TodoStore, VIEWS } from "@corgiops/todos-core"
 import { z } from "zod"
 
 const id = z.number().int().positive().describe("Task id")
@@ -9,6 +9,23 @@ const description = z.string().describe("What the task involves (non-empty)")
 const status = StatusSchema.describe("Task status")
 const targetDate = z.string().describe("Day the task is planned for, YYYY-MM-DD (local). Defaults to today.")
 const completionDate = z.string().describe("Day the task was completed, YYYY-MM-DD. Only valid when status is done.")
+const fieldName = z.string().describe("Field name, unique within the task")
+const fieldOptions = {
+  type: z
+    .enum(FIELD_TYPES)
+    .describe("text = free text; link = URL; date = YYYY-MM-DD; timestamp = ISO 8601 date-time"),
+  value: z.string().describe('Field value; "" for empty'),
+  editable: z.boolean().describe("false locks the field (no changes after it is saved). Default true."),
+  visibleOnLists: z.boolean().describe("Show on the TUI list views. Default false."),
+  textbox: z.boolean().describe("text fields only: multiline (true, default) or single line"),
+}
+const optionalFieldOptions = {
+  value: fieldOptions.value.optional(),
+  editable: fieldOptions.editable.optional(),
+  visibleOnLists: fieldOptions.visibleOnLists.optional(),
+  textbox: fieldOptions.textbox.optional(),
+}
+const field = z.object({ name: fieldName, type: fieldOptions.type, ...optionalFieldOptions })
 const view = z
   .enum(VIEWS)
   .describe(
@@ -54,6 +71,7 @@ export function createServer(store: TodoStore = new TodoStore()): McpServer {
         status: status.optional(),
         targetDate: targetDate.optional(),
         completionDate: completionDate.optional(),
+        fields: z.array(field).optional().describe("Custom fields, in display order"),
       },
     },
     (input) => run(() => store.add(input)),
@@ -75,6 +93,32 @@ export function createServer(store: TodoStore = new TodoStore()): McpServer {
       annotations: { idempotentHint: true },
     },
     ({ id, ...patch }) => run(() => store.update(id, patch)),
+  )
+
+  server.registerTool(
+    "set_task_field",
+    {
+      description:
+        "Add a custom field to a task, or change the existing one with this name. Omitted options keep their current value (new fields default to type text). Non-editable fields can't be changed.",
+      inputSchema: {
+        id,
+        name: fieldName,
+        type: fieldOptions.type.optional(),
+        ...optionalFieldOptions,
+      },
+      annotations: { idempotentHint: true },
+    },
+    ({ id, ...patch }) => run(() => store.setField(id, patch)),
+  )
+
+  server.registerTool(
+    "remove_task_field",
+    {
+      description: "Remove a custom field from a task by name (also works for non-editable fields).",
+      inputSchema: { id, name: fieldName },
+      annotations: { destructiveHint: true },
+    },
+    ({ id, name }) => run(() => store.removeField(id, name)),
   )
 
   server.registerTool(

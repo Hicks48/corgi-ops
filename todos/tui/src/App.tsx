@@ -1,22 +1,26 @@
 import { useKeyboard } from "@opentui/react"
 import { useEffect, useState } from "react"
-import { tasksInView, VIEWS, type Task, type TodoStore, type View } from "@corgiops/todos-core"
+import { tasksInView, VIEWS, type CustomField, type Task, type TodoStore, type View } from "@corgiops/todos-core"
+import { runFieldAction, type FieldAction } from "./FieldButtons.tsx"
 import { ListView, VIEW_ACTIONS } from "./ListView.tsx"
 import { TaskDetails, type TaskValues } from "./TaskDetails.tsx"
+import type { System } from "./system.ts"
 import { useTasks } from "./useTasks.ts"
 
 type Mode = { kind: "list" } | { kind: "details"; task?: Task }
 
 interface AppProps {
   store: TodoStore
+  system: System
   onExit: () => void
 }
 
-export function App({ store, onExit }: AppProps) {
+export function App({ store, system, onExit }: AppProps) {
   const { tasks, error, setError, reload } = useTasks(store)
   const [mode, setMode] = useState<Mode>({ kind: "list" })
   const [view, setView] = useState<View>("current")
   const [indexes, setIndexes] = useState<Record<View, number>>({ completed: 0, current: 0, upcoming: 0 })
+  const [notice, setNotice] = useState<string | null>(null)
   const [, setTick] = useState(0)
 
   // Re-render each minute so views roll over at midnight.
@@ -60,6 +64,14 @@ export function App({ store, onExit }: AppProps) {
     }
   }
 
+  const fieldAction = async (action: FieldAction, field: CustomField) => {
+    try {
+      setNotice(await runFieldAction(system, action, field))
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
   const save = async (values: TaskValues) => {
     const editing = mode.kind === "details" ? mode.task : undefined
     const task = editing ? await store.update(editing.id, values) : await store.add(values)
@@ -75,16 +87,24 @@ export function App({ store, onExit }: AppProps) {
 
   useKeyboard((key) => {
     if (mode.kind !== "list") return
-    if (key.sequence === VIEW_ACTIONS[view].key) {
-      if (selected) void runAction(selected)
-      return
+    setNotice(null)
+    // Match printable keys on the typed character, not key.name: with a modifier (e.g. alt+8 for `[` on
+    // Nordic layouts) some terminals name the base key instead.
+    switch (key.sequence) {
+      case VIEW_ACTIONS[view].key:
+        if (selected) void runAction(selected)
+        return
+      case "[":
+        return switchView(-1)
+      case "]":
+        return switchView(1)
     }
     switch (key.name) {
       case "q":
         return onExit()
-      case "[":
+      case "left":
         return switchView(-1)
-      case "]":
+      case "right":
         return switchView(1)
       case "up":
       case "k":
@@ -106,6 +126,7 @@ export function App({ store, onExit }: AppProps) {
         key={mode.task?.id ?? "new"}
         task={mode.task}
         today={today}
+        system={system}
         onSave={save}
         onDelete={remove}
         onClose={() => setMode({ kind: "list" })}
@@ -120,10 +141,12 @@ export function App({ store, onExit }: AppProps) {
       selectedIndex={selectedIndex}
       today={today}
       error={error}
+      notice={notice}
       onSwitchView={setView}
       onSelect={select}
       onOpen={(task) => setMode({ kind: "details", task })}
       onAction={(task) => void runAction(task)}
+      onFieldAction={(action, field) => void fieldAction(action, field)}
     />
   )
 }

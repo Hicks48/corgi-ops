@@ -3,6 +3,7 @@ import { createCliRenderer } from "@opentui/core"
 import { createRoot } from "@opentui/react"
 import { TodoStore } from "@corgiops/todos-core"
 import { App } from "./App.tsx"
+import { createSystem } from "./system.ts"
 
 const renderer = await createCliRenderer()
 
@@ -11,4 +12,4 @@ const exit = () => {
   process.exit(0)
 }
 
-createRoot(renderer).render(<App store={new TodoStore()} onExit={exit} />)
+createRoot(renderer).render(<App store={new TodoStore()} system={createSystem(renderer)} onExit={exit} />)

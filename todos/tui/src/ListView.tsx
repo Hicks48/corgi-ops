@@ -1,6 +1,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core"
 import { useEffect, useRef } from "react"
-import { VIEW_LABELS, VIEWS, type Task, type View } from "@corgiops/todos-core"
+import { VIEW_LABELS, VIEWS, type CustomField, type Task, type View } from "@corgiops/todos-core"
+import type { FieldAction } from "./FieldButtons.tsx"
 import { cardId, TaskCard } from "./TaskCard.tsx"
 import { theme } from "./theme.ts"
 
@@ -31,14 +32,16 @@ interface ListViewProps {
   selectedIndex: number
   today: string
   error: string | null
+  notice: string | null
   onSwitchView: (view: View) => void
   onSelect: (index: number) => void
   onOpen: (task: Task) => void
   onAction: (task: Task) => void
+  onFieldAction: (action: FieldAction, field: CustomField) => void
 }
 
 export function ListView(props: ListViewProps) {
-  const { view, tasks, selectedIndex, today, error, onSwitchView, onSelect, onOpen, onAction } = props
+  const { view, tasks, selectedIndex, today, error, notice, onSwitchView, onSelect, onOpen, onAction, onFieldAction } = props
   const scrollRef = useRef<ScrollBoxRenderable>(null)
   const selected = tasks[selectedIndex]
   const action = VIEW_ACTIONS[view]
@@ -71,13 +74,14 @@ export function ListView(props: ListViewProps) {
             actionLabel={action.label}
             onClick={() => (index === selectedIndex ? onOpen(task) : onSelect(index))}
             onAction={() => onAction(task)}
+            onFieldAction={onFieldAction}
           />
         ))}
       </scrollbox>
 
-      {error ? <text fg={theme.error}>{` ${error}`}</text> : null}
+      {error ? <text fg={theme.error}>{` ${error}`}</text> : notice ? <text fg={theme.accent}>{` ${notice}`}</text> : null}
       <text fg={theme.dim} flexShrink={0}>
-        {` [ ] switch view  ↑↓ select  enter details  a add  ${action.key} ${action.label}  q quit`}
+        {` [ ] / ←→ switch view  ↑↓ select  enter details  a add  ${action.key} ${action.label}  q quit`}
       </text>
     </box>
   )

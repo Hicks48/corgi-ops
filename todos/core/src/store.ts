@@ -3,6 +3,7 @@ import { mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/prom
 import { join } from "node:path"
 import { z } from "zod"
 import { addDays, toLocalDate, type LocalDate } from "./dates.ts"
+import { CustomFieldSchema, FieldPatchSchema, lockedFieldChange, type CustomField, type FieldPatch } from "./fields.ts"
 import { todosDir } from "./paths.ts"
 import {
   emptyTodoFile,
@@ -90,6 +91,7 @@ export class TodoStore {
         title: fields.title,
         description: fields.description,
         targetDate: fields.targetDate ?? this.today(),
+        fields: fields.fields ?? [],
         createdAt: now,
         updatedAt: now,
       }
@@ -105,6 +107,7 @@ export class TodoStore {
     return this.mutate((data) => {
       const task = find(data, id)
       const previous = task.completionDate
+      if (fields.fields) assertUnlocked(task.fields, fields.fields)
       Object.assign(task, fields, { updatedAt: this.now().toISOString() })
       this.applyCompletion(task, completionDate, previous)
       return task
@@ -127,6 +130,31 @@ export class TodoStore {
 
   setStatus(id: number, status: Status): Promise<Task> {
     return this.update(id, { status })
+  }
+
+  /** Adds the field, or changes the one with the same name. Unspecified options keep their current value. */
+  async setField(id: number, patch: FieldPatch): Promise<Task> {
+    const { name, ...changes } = parse(FieldPatchSchema, patch)
+    return this.mutate((data) => {
+      const task = find(data, id)
+      const index = task.fields.findIndex((f) => f.name === name)
+      const existing = task.fields[index]
+      const field = parse(CustomFieldSchema, { type: "text", ...existing, ...defined(changes), name })
+      const fields = index < 0 ? [...task.fields, field] : task.fields.with(index, field)
+      assertUnlocked(task.fields, fields)
+      return Object.assign(task, { fields, updatedAt: this.now().toISOString() })
+    })
+  }
+
+  async removeField(id: number, name: string): Promise<Task> {
+    return this.mutate((data) => {
+      const task = find(data, id)
+      if (!task.fields.some((f) => f.name === name)) throw new TodoError(`task ${id} has no field "${name}"`)
+      return Object.assign(task, {
+        fields: task.fields.filter((f) => f.name !== name),
+        updatedAt: this.now().toISOString(),
+      })
+    })
   }
 
   async remove(id: number): Promise<Task> {
@@ -223,6 +251,11 @@ export class TodoStore {
       await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS))
     }
   }
+}
+
+const assertUnlocked = (previous: CustomField[], next: CustomField[]) => {
+  const locked = lockedFieldChange(previous, next)
+  if (locked !== undefined) throw new TodoError(`field "${locked}" is not editable`)
 }
 
 const find = (data: TodoFile, id: number): Task => {

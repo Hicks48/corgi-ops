@@ -35,7 +35,7 @@ describe("TodoStore", () => {
     expect(b.completionDate).toBe("2026-10-03")
 
     const onDisk = JSON.parse(await readFile(store.file, "utf8"))
-    expect(onDisk.schemaVersion).toBe(2)
+    expect(onDisk.schemaVersion).toBe(3)
     expect(onDisk.tasks).toHaveLength(2)
     expect(await new TodoStore({ dir: store.dir, now: () => clock }).list({ status: "done" })).toEqual([b])
   })
@@ -163,6 +163,72 @@ describe("TodoStore", () => {
       { id: 2, status: "done", targetDate: "2026-10-01", completionDate: "2026-10-02" },
     ])
     await store.add({ title: "C", description: "c" })
-    expect(JSON.parse(await readFile(store.file, "utf8")).schemaVersion).toBe(2)
+    expect(JSON.parse(await readFile(store.file, "utf8")).schemaVersion).toBe(3)
+  })
+
+  test("migrates schema v2 files", async () => {
+    await store.list()
+    const at = new Date(2026, 9, 1, 9).toISOString()
+    const v2 = {
+      schemaVersion: 2,
+      nextId: 2,
+      tasks: [{ id: 1, title: "A", description: "a", status: "todo", targetDate: "2026-10-01", createdAt: at, updatedAt: at }],
+    }
+    await writeFile(store.file, JSON.stringify(v2))
+    expect(await store.list()).toMatchObject([{ id: 1, fields: [] }])
+    await store.add({ title: "B", description: "b" })
+    expect(JSON.parse(await readFile(store.file, "utf8")).schemaVersion).toBe(3)
+  })
+})
+
+describe("custom fields", () => {
+  test("fill in option defaults and validate values", async () => {
+    const task = await store.add({
+      title: "A",
+      description: "a",
+      fields: [
+        { type: "text", name: "Notes", value: "hi" },
+        { type: "link", name: "PR", value: " https://example.com ", visibleOnLists: true },
+        { type: "date", name: "Due" },
+        { type: "timestamp", name: "At", value: "2026-10-03T09:00:00+03:00", editable: false },
+      ],
+    })
+    expect(task.fields).toEqual([
+      { type: "text", name: "Notes", editable: true, visibleOnLists: false, textbox: true, value: "hi" },
+      { type: "link", name: "PR", editable: true, visibleOnLists: true, value: "https://example.com" },
+      { type: "date", name: "Due", editable: true, visibleOnLists: false, value: "" },
+      { type: "timestamp", name: "At", editable: false, visibleOnLists: false, value: "2026-10-03T09:00:00+03:00" },
+    ])
+    await expect(store.add({ title: "B", description: "b", fields: [{ type: "date", name: "Due", value: "soon" }] })).rejects.toThrow("YYYY-MM-DD")
+    await expect(store.add({ title: "B", description: "b", fields: [{ type: "text", name: " " }] })).rejects.toThrow("field name is required")
+    await expect(
+      store.add({ title: "B", description: "b", fields: [{ type: "text", name: "X" }, { type: "link", name: "X" }] }),
+    ).rejects.toThrow("duplicate field name: X")
+  })
+
+  test("setField adds or changes a field by name, keeping unspecified options", async () => {
+    const task = await store.add({ title: "A", description: "a" })
+    await store.setField(task.id, { name: "PR", type: "link", value: "x", visibleOnLists: true })
+    const updated = await store.setField(task.id, { name: "PR", value: "y", type: undefined })
+    expect(updated.fields).toEqual([{ type: "link", name: "PR", editable: true, visibleOnLists: true, value: "y" }])
+    expect((await store.setField(task.id, { name: "Notes" })).fields[1]).toMatchObject({ type: "text", textbox: true })
+
+    expect((await store.removeField(task.id, "PR")).fields.map((f) => f.name)).toEqual(["Notes"])
+    await expect(store.removeField(task.id, "PR")).rejects.toThrow('no field "PR"')
+  })
+
+  test("non-editable fields are locked once saved but can be removed", async () => {
+    const task = await store.add({ title: "A", description: "a", fields: [{ type: "text", name: "Id", value: "1", editable: false }] })
+    await expect(store.setField(task.id, { name: "Id", value: "2" })).rejects.toThrow('field "Id" is not editable')
+    await expect(store.setField(task.id, { name: "Id", editable: true })).rejects.toThrow("not editable")
+    await expect(store.update(task.id, { fields: [{ ...task.fields[0]!, value: "2" }] })).rejects.toThrow("not editable")
+    // Unchanged locked fields pass through a full update.
+    expect((await store.update(task.id, { title: "A2", fields: task.fields })).fields).toEqual(task.fields)
+
+    // Added later, it locks from then on.
+    await store.setField(task.id, { name: "Ref", value: "r", editable: false })
+    await expect(store.setField(task.id, { name: "Ref", value: "s" })).rejects.toThrow("not editable")
+
+    expect((await store.update(task.id, { fields: [] })).fields).toEqual([])
   })
 })
