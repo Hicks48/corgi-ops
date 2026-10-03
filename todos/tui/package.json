@@ -1,0 +1,16 @@
+{
+  "name": "@corgiops/todos-tui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "corgi-todos-tui": "./src/index.tsx" },
+  "dependencies": {
+    "@corgiops/todos-core": "workspace:*",
+    "@opentui/core": "^0.5.14",
+    "@opentui/react": "^0.5.14",
+    "react": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19"
+  }
+}

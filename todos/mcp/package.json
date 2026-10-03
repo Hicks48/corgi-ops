@@ -1,0 +1,12 @@
+{
+  "name": "@corgiops/todos-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "corgi-todos-mcp": "./src/index.ts" },
+  "dependencies": {
+    "@corgiops/todos-core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "zod": "^4"
+  }
+}

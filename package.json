@@ -1,0 +1,17 @@
+{
+  "name": "corgi-ops",
+  "private": true,
+  "type": "module",
+  "workspaces": ["todos/*"],
+  "scripts": {
+    "todos": "bun todos/tui/src/index.tsx",
+    "todos:cli": "bun todos/cli/src/index.ts",
+    "todos:mcp": "bun todos/mcp/src/index.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}
