@@ -74,3 +74,10 @@ It is possible to add custom fields to the tasks for having more structure than 
     * `name: string`: Name of the field. Can not be empty.
     * `editable: boolean`: Specifies if the field can be modified after task creation. Default `true`.
     * `visible-on-lists: boolean`: Specifies if field is shown on the list views (truncated if needed). Default `false`.
+
+### Templates
+The todos TUI has a concept of templates to make creation of similar tasks easier. Template has most of the same fields as a task with the exception of `status`, `target-date` and `completion-date` as these fields don't make sense on a template. Templates can also have custom fields.
+
+When creating a task there is an option to choose a template from a dropdown and when selected the template will override the values of the task being created with the templates non null values (meaning values which are empty in the template do not override tasks values). Template can only be used when creating a new task not when editing an existing task. An existing task does not have a link to the template which was used for creating it. Templates are just used as a starting point for task creation.
+
+The app allows for entering a list of template and provides the basic CRUD operations. The template list can not be accessed from using the arrow keys as sepcified on the header but instead there is a separate key command to enter the template list where the template details view can be opened and the template can be edited.

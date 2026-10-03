@@ -16,3 +16,11 @@ export const formatLocalDateTime = (iso: string): string => {
   const date = new Date(iso)
   return `${toLocalDate(date)} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
+
+/** True for a real calendar date written as `YYYY-MM-DD`. */
+export const isLocalDate = (text: string): boolean => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
+  if (!match) return false
+  const [y, m, d] = match.slice(1).map(Number) as [number, number, number]
+  return toLocalDate(new Date(y, m - 1, d)) === text
+}

@@ -2,6 +2,7 @@ import type { ScrollBoxRenderable } from "@opentui/core"
 import { useEffect, useRef } from "react"
 import { VIEW_LABELS, VIEWS, type CustomField, type Task, type View } from "@corgiops/todos-core"
 import type { FieldAction } from "./FieldButtons.tsx"
+import { Hints } from "./Hints.tsx"
 import { cardId, TaskCard } from "./TaskCard.tsx"
 import { theme } from "./theme.ts"
 
@@ -80,9 +81,7 @@ export function ListView(props: ListViewProps) {
       </scrollbox>
 
       {error ? <text fg={theme.error}>{` ${error}`}</text> : notice ? <text fg={theme.accent}>{` ${notice}`}</text> : null}
-      <text fg={theme.dim} flexShrink={0}>
-        {` [ ] / ←→ switch view  ↑↓ select  enter details  a add  ${action.key} ${action.label}  q quit`}
-      </text>
+      <Hints hints={["[ ] / ←→ switch view", "↑↓ select", "enter details", "a add", `${action.key} ${action.label}`, "p templates", "q quit"]} />
     </box>
   )
 }

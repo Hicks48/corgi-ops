@@ -3,7 +3,7 @@ import { existsSync } from "node:fs"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { TodoError, TodoStore } from "./index.ts"
+import { applyTemplate, TodoError, TodoStore, type Template } from "./index.ts"
 
 let root: string
 let store: TodoStore
@@ -230,5 +230,86 @@ describe("custom fields", () => {
     await expect(store.setField(task.id, { name: "Ref", value: "s" })).rejects.toThrow("not editable")
 
     expect((await store.update(task.id, { fields: [] })).fields).toEqual([])
+  })
+})
+
+describe("templates", () => {
+  test("CRUD, stored apart from tasks", async () => {
+    const bug = await store.addTemplate({ name: "Bug", title: "Fix: ", fields: [{ type: "link", name: "Issue" }] })
+    expect(bug).toMatchObject({ id: 1, name: "Bug", title: "Fix:", description: "", fields: [{ name: "Issue", value: "" }] })
+    await store.addTemplate({ name: "Admin" })
+    expect((await store.listTemplates()).map((t) => t.name)).toEqual(["Admin", "Bug"])
+    expect(existsSync(store.templatesFile)).toBe(true)
+    expect(existsSync(store.file)).toBe(false)
+
+    await expect(store.addTemplate({ name: "Bug" })).rejects.toThrow('a template named "Bug" already exists')
+    await expect(store.updateTemplate(1, { name: "Admin" })).rejects.toThrow("already exists")
+    await expect(store.addTemplate({ name: " " })).rejects.toThrow("template name is required")
+
+    expect(await store.updateTemplate("Bug", { name: "Defect", description: "Steps:", title: undefined })).toMatchObject({
+      name: "Defect",
+      title: "Fix:",
+      description: "Steps:",
+    })
+    expect((await store.setTemplateField(1, { name: "Issue", value: "https://x", editable: false })).fields[0]).toMatchObject({
+      type: "link",
+      value: "https://x",
+      editable: false,
+    })
+    // Not locked on a template.
+    expect((await store.setTemplateField(1, { name: "Issue", value: "https://y" })).fields[0]!.value).toBe("https://y")
+    expect((await store.removeTemplateField("Defect", "Issue")).fields).toEqual([])
+    await expect(store.removeTemplateField(1, "Issue")).rejects.toThrow('template "Defect" has no field "Issue"')
+
+    await store.removeTemplate("Defect")
+    await expect(store.getTemplate(1)).rejects.toThrow("template 1 not found")
+    await expect(store.getTemplate("Nope")).rejects.toThrow('template "Nope" not found')
+  })
+
+  test("addFromTemplate fills in from the template; explicit values win", async () => {
+    await store.addTemplate({
+      name: "Review",
+      title: "Review PR",
+      description: "Check tests",
+      fields: [
+        { type: "link", name: "PR", value: "https://default" },
+        { type: "text", name: "Notes" },
+      ],
+    })
+    const task = await store.addFromTemplate("Review", {
+      title: "Review #42",
+      targetDate: "2026-10-05",
+      fields: [{ type: "link", name: "PR", value: "https://42" }],
+    })
+    expect(task).toMatchObject({ title: "Review #42", description: "Check tests", targetDate: "2026-10-05", status: "todo" })
+    expect(task.fields.map((f) => [f.name, f.value])).toEqual([
+      ["PR", "https://42"],
+      ["Notes", ""],
+    ])
+
+    await store.addTemplate({ name: "Blank" })
+    await expect(store.addFromTemplate("Blank")).rejects.toThrow("title is required")
+  })
+})
+
+describe("applyTemplate", () => {
+  const template = (fields: Partial<Template>): Template => ({
+    id: 1,
+    name: "T",
+    title: "",
+    description: "",
+    fields: [],
+    createdAt: "2026-10-03T09:00:00.000Z",
+    updatedAt: "2026-10-03T09:00:00.000Z",
+    ...fields,
+  })
+  const text = (name: string, value: string) => ({ type: "text" as const, name, value, editable: true, visibleOnLists: false, textbox: true })
+
+  test("only non-empty template values override", () => {
+    const values = { title: "Mine", description: "Mine too", fields: [text("A", "a"), text("B", "b")], extra: 1 }
+    expect(applyTemplate(values, template({ description: "  " }))).toEqual(values)
+    expect(
+      applyTemplate(values, template({ title: "T", description: "D", fields: [text("B", "tb"), text("A", ""), text("C", "")] })),
+    ).toEqual({ title: "T", description: "D", fields: [text("A", "a"), text("B", "tb"), text("C", "")], extra: 1 })
   })
 })

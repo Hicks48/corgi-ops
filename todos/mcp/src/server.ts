@@ -26,6 +26,12 @@ const optionalFieldOptions = {
   textbox: fieldOptions.textbox.optional(),
 }
 const field = z.object({ name: fieldName, type: fieldOptions.type, ...optionalFieldOptions })
+const template = z
+  .union([z.number().int().positive(), z.string()])
+  .describe("Template id, or its exact name")
+const templateName = z.string().describe("Template name (non-empty, unique)")
+const templateTitle = z.string().describe('Title given to tasks made from the template; "" leaves the task\'s own')
+const templateDescription = z.string().describe('Description given to tasks made from the template; "" leaves the task\'s own')
 const view = z
   .enum(VIEWS)
   .describe(
@@ -64,17 +70,23 @@ export function createServer(store: TodoStore = new TodoStore()): McpServer {
     "add_task",
     {
       description:
-        "Create a task. Title and description are required. Status defaults to todo, target date to today.",
+        "Create a task. Title and description are required unless a template provides them. Status defaults to todo, target date to today. With a template, its non-empty title, description and fields are used; values given here win (fields by name).",
       inputSchema: {
-        title,
-        description,
+        template: template.optional(),
+        title: title.optional(),
+        description: description.optional(),
         status: status.optional(),
         targetDate: targetDate.optional(),
         completionDate: completionDate.optional(),
         fields: z.array(field).optional().describe("Custom fields, in display order"),
       },
     },
-    (input) => run(() => store.add(input)),
+    ({ template, title = "", description = "", ...input }) =>
+      run(() =>
+        template === undefined
+          ? store.add({ title, description, ...input })
+          : store.addFromTemplate(template, { title: title || undefined, description: description || undefined, ...input }),
+      ),
   )
 
   server.registerTool(
@@ -164,6 +176,82 @@ export function createServer(store: TodoStore = new TodoStore()): McpServer {
       annotations: { destructiveHint: true },
     },
     ({ id }) => run(() => store.remove(id)),
+  )
+
+  server.registerTool(
+    "list_templates",
+    {
+      description: "List task templates (starting points for new tasks), sorted by name.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    () => run(() => store.listTemplates()),
+  )
+
+  server.registerTool(
+    "get_template",
+    { description: "Get one template by id or name.", inputSchema: { template }, annotations: { readOnlyHint: true } },
+    ({ template }) => run(() => store.getTemplate(template)),
+  )
+
+  server.registerTool(
+    "add_template",
+    {
+      description: "Create a task template. Only the name is required.",
+      inputSchema: {
+        name: templateName,
+        title: templateTitle.optional(),
+        description: templateDescription.optional(),
+        fields: z.array(field).optional().describe("Custom fields, in display order"),
+      },
+    },
+    (input) => run(() => store.addTemplate(input)),
+  )
+
+  server.registerTool(
+    "update_template",
+    {
+      description: "Change a template. Omitted values are left unchanged.",
+      inputSchema: {
+        template,
+        name: templateName.optional(),
+        title: templateTitle.optional(),
+        description: templateDescription.optional(),
+      },
+      annotations: { idempotentHint: true },
+    },
+    ({ template, ...patch }) => run(() => store.updateTemplate(template, patch)),
+  )
+
+  server.registerTool(
+    "set_template_field",
+    {
+      description:
+        "Add a custom field to a template, or change the existing one with this name. Omitted options keep their current value (new fields default to type text).",
+      inputSchema: { template, name: fieldName, type: fieldOptions.type.optional(), ...optionalFieldOptions },
+      annotations: { idempotentHint: true },
+    },
+    ({ template, ...patch }) => run(() => store.setTemplateField(template, patch)),
+  )
+
+  server.registerTool(
+    "remove_template_field",
+    {
+      description: "Remove a custom field from a template by name.",
+      inputSchema: { template, name: fieldName },
+      annotations: { destructiveHint: true },
+    },
+    ({ template, name }) => run(() => store.removeTemplateField(template, name)),
+  )
+
+  server.registerTool(
+    "delete_template",
+    {
+      description: "Permanently delete a template. Tasks made from it are unaffected. Returns the deleted template.",
+      inputSchema: { template },
+      annotations: { destructiveHint: true },
+    },
+    ({ template }) => run(() => store.removeTemplate(template)),
   )
 
   return server

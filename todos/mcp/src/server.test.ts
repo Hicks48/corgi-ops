@@ -33,16 +33,23 @@ test("exposes the task tools", async () => {
   const { tools } = await client.listTools()
   expect(tools.map((t) => t.name).sort()).toEqual([
     "add_task",
+    "add_template",
     "delete_task",
+    "delete_template",
     "get_task",
+    "get_template",
     "list_tasks",
+    "list_templates",
     "postpone_task",
     "pull_task_to_today",
     "remove_task_field",
+    "remove_template_field",
     "reopen_task",
     "set_task_field",
     "set_task_status",
+    "set_template_field",
     "update_task",
+    "update_template",
   ])
 })
 
@@ -86,4 +93,23 @@ test("custom fields", async () => {
   expect(set.fields.map((f: { name: string }) => f.name)).toEqual(["PR", "Due"])
   const removed = JSON.parse((await call("remove_task_field", { id: 1, name: "PR" })).text)
   expect(removed.fields).toEqual([{ type: "date", name: "Due", value: "2026-10-09", editable: true, visibleOnLists: false }])
+})
+
+test("templates", async () => {
+  const fields = [{ type: "text", name: "Notes", value: "from template" }]
+  const added = JSON.parse((await call("add_template", { name: "Walk", title: "Walk corgi", fields })).text)
+  expect(added).toMatchObject({ id: 1, name: "Walk", title: "Walk corgi", description: "" })
+  await call("update_template", { template: "Walk", description: "Around the block" })
+  await call("set_template_field", { template: 1, name: "Route", type: "link" })
+  expect(JSON.parse((await call("list_templates")).text).map((t: { name: string }) => t.name)).toEqual(["Walk"])
+  expect(JSON.parse((await call("get_template", { template: 1 })).text).fields).toHaveLength(2)
+
+  const task = JSON.parse((await call("add_task", { template: "Walk", title: "Evening walk" })).text)
+  expect(task).toMatchObject({ title: "Evening walk", description: "Around the block" })
+  expect(task.fields.map((f: { name: string }) => f.name)).toEqual(["Notes", "Route"])
+  expect(await call("add_task", { title: "x" })).toEqual({ isError: true, text: "description is required" })
+
+  await call("remove_template_field", { template: "Walk", name: "Route" })
+  await call("delete_template", { template: "Walk" })
+  expect(await call("get_template", { template: "Walk" })).toEqual({ isError: true, text: 'template "Walk" not found' })
 })

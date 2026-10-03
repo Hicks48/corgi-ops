@@ -310,7 +310,9 @@ test("editable custom fields save their typed value", async () => {
   await see("Vet · date")
   ui.mockInput.pressTab()
   await settle()
-  await ui.mockInput.typeText("x")
+  await ui.mockInput.typeText("x") // ignored
+  ui.mockInput.pressKey("END")
+  ui.mockInput.pressKey("BACKSPACE")
   save()
   await see("date fields must be YYYY-MM-DD")
 })
@@ -402,7 +404,7 @@ test("edits status, completion and target date in the details view", async () =>
   expect(task.completionDate).toBeUndefined()
 })
 
-test("rejects a malformed date", async () => {
+test("rejects an incomplete date", async () => {
   await store.add({ title: "Walk corgi", description: "Around the block" })
   await mount()
   await see("Walk corgi")
@@ -410,10 +412,29 @@ test("rejects a malformed date", async () => {
   await see("Task #1")
   ui.mockInput.pressTab({ shift: true })
   await settle()
-  await ui.mockInput.typeText("x")
+  ui.mockInput.pressKey("END")
+  ui.mockInput.pressKey("BACKSPACE")
   save()
   await see("must be a date")
   expect((await store.get(1)).targetDate).toBe("2026-10-03")
+})
+
+test("date inputs only take YYYY-MM-DD", async () => {
+  await store.add({ title: "Walk corgi", description: "Around the block" })
+  await mount()
+  await see("Walk corgi")
+  ui.mockInput.pressEnter()
+  await see("Task #1")
+  ui.mockInput.pressTab({ shift: true })
+  await settle()
+  ui.mockInput.pressKey("END")
+  for (let i = 0; i < 10; i++) ui.mockInput.pressKey("BACKSPACE")
+  await see("YYYY-MM-DD") // placeholder: empty
+  await ui.mockInput.typeText("2026/1x012!")
+  await see("2026-10-12")
+  save()
+  await see("[ Pull to today ]")
+  expect((await store.get(1)).targetDate).toBe("2026-10-12")
 })
 
 test("deletes only from the details view, after confirming", async () => {
@@ -465,4 +486,93 @@ test("q exits", async () => {
   ui.mockInput.pressKey("q")
   await ui.flush()
   expect(exited).toBe(true)
+})
+
+test("p opens templates: add, edit and delete", async () => {
+  await mount()
+  await see("Nothing on for today")
+  ui.mockInput.pressKey("p")
+  await see("No templates yet")
+
+  ui.mockInput.pressKey("a")
+  await see("New Template")
+  await ui.mockInput.typeText("Walk") // title has focus
+  ui.mockInput.pressTab({ shift: true }) // name
+  await settle()
+  save()
+  await see("template name is required")
+  await ui.mockInput.typeText("Daily walk")
+  ui.mockInput.pressKey("n", { ctrl: true })
+  await see("New field")
+  await ui.mockInput.typeText("Route")
+  ui.mockInput.pressEnter()
+  await see("Route · text")
+  await ui.mockInput.typeText("Park")
+  save()
+
+  await see("Fields: Route")
+  expect(await store.listTemplates()).toMatchObject([
+    { name: "Daily walk", title: "Walk", description: "", fields: [{ name: "Route", value: "Park" }] },
+  ])
+
+  ui.mockInput.pressEnter()
+  await see("Template #1")
+  ui.mockInput.pressKey("d", { ctrl: true })
+  await see('Delete template "Daily walk"? y to confirm')
+  ui.mockInput.pressKey("y")
+  await see("No templates yet")
+  expect(await store.listTemplates()).toEqual([])
+
+  ui.mockInput.pressEscape()
+  await see("Nothing on for today")
+})
+
+test("a new task can start from a template", async () => {
+  await store.addTemplate({
+    name: "Walk",
+    title: "Walk corgi",
+    fields: [
+      { type: "link", name: "Route", value: "https://maps.example/park" },
+      { type: "text", name: "Notes" },
+    ],
+  })
+  await store.addTemplate({ name: "Groom", title: "Groom corgi", description: "Brush and trim" })
+  await mount()
+  await see("Nothing on for today")
+
+  ui.mockInput.pressKey("a")
+  await see("New Task")
+  await ui.mockInput.typeText("Mine")
+  ui.mockInput.pressEnter() // description
+  await settle()
+  await ui.mockInput.typeText("My own description")
+  // description -> title -> target date -> status -> template
+  for (let i = 0; i < 4; i++) {
+    ui.mockInput.pressTab({ shift: true })
+    await settle()
+  }
+  ui.mockInput.pressEnter()
+  await see("Pick a template")
+  ui.mockInput.pressArrow("down")
+  await settle()
+  ui.mockInput.pressEnter()
+  const frame = await see("Route · link")
+  expect(frame).toContain("Walk ▾")
+  expect(frame).toContain("Walk corgi")
+  // Empty template description leaves ours alone.
+  expect(frame).toContain("My own description")
+  save()
+
+  await see("[ +1 day ]")
+  const [task] = await store.list()
+  expect(task).toMatchObject({ title: "Walk corgi", description: "My own description" })
+  expect(task!.fields.map((f) => [f.name, f.value])).toEqual([
+    ["Route", "https://maps.example/park"],
+    ["Notes", ""],
+  ])
+
+  // Not offered when editing.
+  ui.mockInput.pressEnter()
+  await see("Task #1")
+  expect(ui.captureCharFrame()).not.toContain("Template")
 })

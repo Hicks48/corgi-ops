@@ -42,8 +42,9 @@ Each app is a directory of Bun workspace packages (`workspaces` in root `package
   Root is overridable with `CORGIOPS_HOME`.
 - Files carry `schemaVersion`. When changing the format: bump it, add a step to `migrate()` in
   `core/src/schema.ts`, and add a migration test. Old files are upgraded on read, persisted on next write.
-- Writes go through `TodoStore.mutate`: lockfile + atomic rename, and the whole file is validated before
-  writing. Keep it that way; TUI, CLI and agents (via MCP) may write concurrently.
+- Templates live in their own `templates.json` (own `schemaVersion` and lock), owned by `TodoStore` too.
+- Writes go through `JsonFile.mutate` (`core/src/jsonFile.ts`): lockfile + atomic rename, and the whole
+  file is validated before writing. Keep it that way; TUI, CLI and agents (via MCP) may write concurrently.
 - Dates are local `YYYY-MM-DD` strings (`core/src/dates.ts`); timestamps are ISO strings.
 - User-facing errors are thrown as `TodoError`; adapters show these and let other errors crash.
 
@@ -51,8 +52,13 @@ Each app is a directory of Bun workspace packages (`workspaces` in root `package
 - UI spec written by the user: `todos/tui/README.md`. Treat it as the source of truth for TUI behaviour;
   ask before deviating. User-facing docs (keys, CLI usage, MCP tools): root `README.md`.
 - Views (`completed`, `current`, `upcoming`) are defined in `core/src/views.ts` and shared by all adapters.
-- Custom fields: schema and lock rule in `core/src/fields.ts`. `update({ fields })` replaces the list;
-  `setField` / `removeField` change one by name. Non-editable fields are locked once saved, removable.
+- Custom fields: schema and lock rule in `core/src/fields.ts`. Names are unique per task/template (the key).
+  `update({ fields })` replaces the list; `setField` / `removeField` change one by name. Non-editable fields
+  are locked once saved on a task, removable; never locked on templates.
+- Templates: `core/src/templates.ts`; `applyTemplate` holds the override rule used by the TUI picker and
+  `addFromTemplate`. Templates are referred to by id or name (`TemplateRef`).
+- TUI task and template details share `tui/src/DetailsForm.tsx` (title, custom fields, description, keys);
+  each passes its own top row. Date inputs use `DateInput.tsx`, which masks typing to `YYYY-MM-DD`.
 - Clipboard / browser access goes through the injected `System` (`tui/src/system.ts`); tests pass a fake.
 
 ## Gotchas

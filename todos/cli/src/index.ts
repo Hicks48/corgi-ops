@@ -9,7 +9,10 @@ import {
   VIEWS,
   type FieldType,
   type Status,
+  type FieldPatch,
   type Task,
+  type Template,
+  type TemplateRef,
   type View,
 } from "@corgiops/todos-core"
 
@@ -19,6 +22,8 @@ Usage:
   corgi-todos list [--view <view>] [--status <status>]
   corgi-todos show <id>
   corgi-todos add --title <text> --description <text> [--status <status>] [--target-date <date>]
+  corgi-todos add --template <template> [--title <text>] [--description <text>] [...]
+                                Start from a template; given options win over it
   corgi-todos update <id> [--title <text>] [--description <text>] [--status <status>]
                           [--target-date <date>] [--completion-date <date>]
   corgi-todos status <id> <status>
@@ -31,6 +36,14 @@ Usage:
                                 Add a custom field, or change the one with that name
   corgi-todos field rm <id> <name>
 
+  corgi-todos template list
+  corgi-todos template show <template>
+  corgi-todos template add --name <name> [--title <text>] [--description <text>]
+  corgi-todos template update <template> [--name <name>] [--title <text>] [--description <text>]
+  corgi-todos template rm <template>
+  corgi-todos template field set <template> --name <name> [field options as above]
+  corgi-todos template field rm <template> <name>
+
 Options:
   --json        Print JSON instead of text
   -h, --help    Show this help
@@ -38,7 +51,8 @@ Options:
 Views:    ${VIEWS.join(", ")}
 Statuses: ${STATUSES.join(", ")}
 Fields:   ${FIELD_TYPES.join(", ")}; new fields default to text, editable, hidden on lists, textbox
-Dates:    YYYY-MM-DD; target date defaults to today, completion date is set when a task is done`
+Dates:    YYYY-MM-DD; target date defaults to today, completion date is set when a task is done
+Templates are referred to by id or name. Empty template values leave the task's value alone.`
 
 class UsageError extends Error {}
 
@@ -75,6 +89,13 @@ const parseBool = (flag: string, raw: string | undefined): boolean | undefined =
   return raw === "true"
 }
 
+const parseTemplateRef = (raw: string | undefined): TemplateRef => {
+  if (!raw?.trim()) throw new UsageError("missing template id or name")
+  return /^\d+$/.test(raw) ? Number(raw) : raw
+}
+
+const formatField = (f: Task["fields"][number]) => `${f.name} (${f.type}${f.editable ? "" : ", locked"}): ${f.value}`
+
 const formatLine = (t: Task) =>
   `${String(t.id).padStart(4)}  ${STATUS_LABELS[t.status].padEnd(11)}  ${t.completionDate ?? t.targetDate}  ${t.title}`
 
@@ -84,7 +105,20 @@ const formatDetail = (t: Task) =>
     `Status:  ${STATUS_LABELS[t.status]}`,
     `Target:  ${t.targetDate}`,
     ...(t.completionDate ? [`Done:    ${t.completionDate}`] : []),
-    ...t.fields.map((f) => `${f.name} (${f.type}${f.editable ? "" : ", locked"}): ${f.value}`),
+    ...t.fields.map(formatField),
+    `Created: ${t.createdAt}`,
+    `Updated: ${t.updatedAt}`,
+    "",
+    t.description,
+  ].join("\n")
+
+const formatTemplateLine = (t: Template) => `${String(t.id).padStart(4)}  ${t.name}${t.title ? `  (${t.title})` : ""}`
+
+const formatTemplate = (t: Template) =>
+  [
+    `#${t.id} ${t.name}`,
+    `Title:   ${t.title}`,
+    ...t.fields.map(formatField),
     `Created: ${t.createdAt}`,
     `Updated: ${t.updatedAt}`,
     "",
@@ -108,6 +142,7 @@ async function main(argv: string[]): Promise<void> {
       editable: { type: "string" },
       "visible-on-lists": { type: "string" },
       textbox: { type: "string" },
+      template: { type: "string" },
       json: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -123,8 +158,72 @@ async function main(argv: string[]): Promise<void> {
   const view = parseView(values.view)
   const targetDate = values["target-date"]
   const completionDate = values["completion-date"]
-  const print = (result: Task | Task[], text: string) => console.log(values.json ? JSON.stringify(result, null, 2) : text)
+  const print = (result: Task | Task[] | Template | Template[], text: string) => console.log(values.json ? JSON.stringify(result, null, 2) : text)
   const printTask = (task: Task, verb: string) => print(task, `${verb} #${task.id} ${task.title}`)
+  const printTemplate = (template: Template, verb: string) => print(template, `${verb} template #${template.id} ${template.name}`)
+  const fieldPatch = (): FieldPatch => {
+    if (values.name === undefined) throw new UsageError("field set requires --name")
+    return {
+      name: values.name,
+      type: parseFieldType(values.type),
+      value: values.value,
+      editable: parseBool("editable", values.editable),
+      visibleOnLists: parseBool("visible-on-lists", values["visible-on-lists"]),
+      textbox: parseBool("textbox", values.textbox),
+    }
+  }
+
+  async function template([action, ...rest]: string[]): Promise<void> {
+    const { name, title, description } = values
+    switch (action) {
+      case "list":
+      case "ls": {
+        const templates = await store.listTemplates()
+        print(templates, templates.length ? templates.map(formatTemplateLine).join("\n") : "No templates.")
+        return
+      }
+      case "show": {
+        const template = await store.getTemplate(parseTemplateRef(rest[0]))
+        print(template, formatTemplate(template))
+        return
+      }
+      case "add": {
+        if (name === undefined) throw new UsageError("template add requires --name")
+        printTemplate(await store.addTemplate({ name, title, description }), "Added")
+        return
+      }
+      case "update": {
+        if ([name, title, description].every((v) => v === undefined)) {
+          throw new UsageError("template update requires at least one of --name, --title, --description")
+        }
+        printTemplate(await store.updateTemplate(parseTemplateRef(rest[0]), { name, title, description }), "Updated")
+        return
+      }
+      case "rm":
+      case "delete": {
+        printTemplate(await store.removeTemplate(parseTemplateRef(rest[0])), "Removed")
+        return
+      }
+      case "field": {
+        const [fieldAction, ref, fieldName] = rest
+        if (fieldAction === "set") {
+          const patch = fieldPatch()
+          const template = await store.setTemplateField(parseTemplateRef(ref), patch)
+          print(template, `template "${template.name}" field "${patch.name.trim()}" set`)
+          return
+        }
+        if (fieldAction === "rm") {
+          if (fieldName === undefined) throw new UsageError("template field rm requires a field name")
+          const template = await store.removeTemplateField(parseTemplateRef(ref), fieldName)
+          print(template, `template "${template.name}" field "${fieldName}" removed`)
+          return
+        }
+        throw new UsageError(`unknown template field action: ${fieldAction ?? "(missing)"} (expected set, rm)`)
+      }
+      default:
+        throw new UsageError(`unknown template action: ${action ?? "(missing)"} (expected list, show, add, update, rm, field)`)
+    }
+  }
 
   switch (command) {
     case "list":
@@ -139,6 +238,11 @@ async function main(argv: string[]): Promise<void> {
       return
     }
     case "add": {
+      if (values.template !== undefined) {
+        const input = { title: values.title, description: values.description, status, targetDate, completionDate }
+        printTask(await store.addFromTemplate(parseTemplateRef(values.template), input), "Added")
+        return
+      }
       if (values.title === undefined || values.description === undefined) {
         throw new UsageError("add requires --title and --description")
       }
@@ -182,16 +286,9 @@ async function main(argv: string[]): Promise<void> {
       const [action, rawId, name] = args
       const id = parseId(rawId)
       if (action === "set") {
-        if (values.name === undefined) throw new UsageError("field set requires --name")
-        const task = await store.setField(id, {
-          name: values.name,
-          type: parseFieldType(values.type),
-          value: values.value,
-          editable: parseBool("editable", values.editable),
-          visibleOnLists: parseBool("visible-on-lists", values["visible-on-lists"]),
-          textbox: parseBool("textbox", values.textbox),
-        })
-        print(task, `#${task.id} field "${values.name.trim()}" set`)
+        const patch = fieldPatch()
+        const task = await store.setField(id, patch)
+        print(task, `#${task.id} field "${patch.name.trim()}" set`)
         return
       }
       if (action === "rm") {
@@ -201,6 +298,8 @@ async function main(argv: string[]): Promise<void> {
       }
       throw new UsageError(`unknown field action: ${action ?? "(missing)"} (expected set, rm)`)
     }
+    case "template":
+      return template(args)
     default:
       throw new UsageError(`unknown command: ${command}`)
   }
