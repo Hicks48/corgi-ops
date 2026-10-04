@@ -21,7 +21,7 @@ const customId = (name: string): FocusId => `custom:${name}`
 export const boxId = (focus: FocusId) => `details-${focus}`
 
 /** Tall enough to show the whole value without scrolling, within reason. */
-const textboxHeight = (value: string) => Math.min(10, Math.max(3, value.split("\n").length)) + 2
+export const textboxHeight = (value: string) => Math.min(10, Math.max(3, value.split("\n").length)) + 2
 
 /** What the top row (status, dates, name, template picker...) gets to work with. */
 export interface FormApi {
@@ -38,6 +38,12 @@ export interface FormApi {
   setNotice: (message: string) => void
 }
 
+export interface FormSection {
+  /** Focus ids in tab order. Their boxes need `id={boxId(id)}`. */
+  ids: FocusId[]
+  render: (api: FormApi) => ReactNode
+}
+
 interface DetailsFormProps {
   header: string
   system: System
@@ -45,11 +51,10 @@ interface DetailsFormProps {
   /** Focus ids in the top row, in tab order before the title. */
   topIds: FocusId[]
   renderTop: (api: FormApi) => ReactNode
-  /** Focus ids below the description, in tab order. Their boxes need `id={boxId(id)}`. */
-  bottomIds?: FocusId[]
-  /** Rendered below the description, inside the scroll area. */
-  renderBottom?: (api: FormApi) => ReactNode
-  /** Keys the form doesn't handle itself (incl. ctrl+y / ctrl+o off a custom field), and every key while `suspended`. */
+  /** Extra parts right above / below the description, inside the scroll area. */
+  aboveDescription?: FormSection
+  belowDescription?: FormSection
+  /** Keys the form doesn't handle itself (incl. ctrl+x / y / o off a custom field), and every key while `suspended`. */
   onKey?: (key: KeyEvent, api: FormApi) => void
   /** True while the parent (e.g. a dropdown) owns the keyboard. */
   suspended?: boolean
@@ -61,15 +66,15 @@ interface DetailsFormProps {
   /** Omit when there's nothing to delete yet. */
   onDelete?: { prompt: string; run: () => Promise<void> }
   onClose: () => void
-  /** Extra footer hints, shown before the field hints. */
-  hints: string[]
+  /** Extra footer hints, shown before the field hints; a function to vary them by focus. */
+  hints: string[] | ((focus: FocusId) => string[])
   /** Dim line above the footer, e.g. timestamps. */
   meta?: string
 }
 
 /** Details / edit form with custom fields. Owns the keyboard unless `suspended`. */
 export function DetailsForm(props: DetailsFormProps) {
-  const { header, initial, topIds, renderTop, bottomIds = [], renderBottom, onKey, suspended = false, isLocked = () => false, textPlaceholder } = props
+  const { header, initial, topIds, renderTop, aboveDescription, belowDescription, onKey, suspended = false, isLocked = () => false, textPlaceholder } = props
   const { system, onSave, onDelete, onClose, hints, meta } = props
   // Bumped by `replace` so the uncontrolled widgets remount with the new values.
   const [seed, setSeed] = useState({ ...initial, generation: 0 })
@@ -85,7 +90,14 @@ export function DetailsForm(props: DetailsFormProps) {
   const customRefs = useRef(new Map<string, TextareaRenderable>())
   const scrollRef = useRef<ScrollBoxRenderable>(null)
 
-  const order: FocusId[] = [...topIds, "title", ...customFields.map((f) => customId(f.name)), "description", ...bottomIds]
+  const order: FocusId[] = [
+    ...topIds,
+    "title",
+    ...customFields.map((f) => customId(f.name)),
+    ...(aboveDescription?.ids ?? []),
+    "description",
+    ...(belowDescription?.ids ?? []),
+  ]
 
   useEffect(() => {
     scrollRef.current?.scrollChildIntoView(boxId(focus))
@@ -170,8 +182,8 @@ export function DetailsForm(props: DetailsFormProps) {
         case "n":
           return setAddingField(true)
         case "x":
-          if (focusedCustom) removeField(focusedCustom)
-          return
+          if (focusedCustom) return removeField(focusedCustom)
+          break
         case "y":
           if (focusedCustom) return fieldAction("copy", focusedCustom)
           break
@@ -231,7 +243,7 @@ export function DetailsForm(props: DetailsFormProps) {
 
   const footer = [
     "tab next field",
-    ...hints,
+    ...(typeof hints === "function" ? hints(focus) : hints),
     "ctrl+s save",
     "esc back",
     "ctrl+n new field",
@@ -277,6 +289,7 @@ export function DetailsForm(props: DetailsFormProps) {
           />
         </box>
         {customFields.map(renderCustom)}
+        {aboveDescription?.render(api)}
         <box
           id={boxId("description")}
           title=" Description "
@@ -298,7 +311,7 @@ export function DetailsForm(props: DetailsFormProps) {
             flexGrow={1}
           />
         </box>
-        {renderBottom?.(api)}
+        {belowDescription?.render(api)}
       </scrollbox>
 
       {meta ? (

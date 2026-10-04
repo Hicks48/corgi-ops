@@ -33,8 +33,10 @@ test("exposes the task tools", async () => {
   const { tools } = await client.listTools()
   expect(tools.map((t) => t.name).sort()).toEqual([
     "add_task",
+    "add_task_comment",
     "add_template",
     "delete_task",
+    "delete_task_comment",
     "delete_template",
     "get_task",
     "get_template",
@@ -49,6 +51,7 @@ test("exposes the task tools", async () => {
     "set_task_status",
     "set_template_field",
     "update_task",
+    "update_task_comment",
     "update_template",
   ])
 })
@@ -127,4 +130,15 @@ test("subtasks", async () => {
   })
   expect(JSON.parse((await call("update_task", { id: child.id, parentId: null })).text).parentId).toBeUndefined()
   expect((await call("delete_task", { id: parent.id })).isError).toBe(false)
+})
+
+test("comments", async () => {
+  const task = JSON.parse((await call("add_task", { title: "Walk", description: "Around" })).text)
+  const added = JSON.parse((await call("add_task_comment", { id: task.id, text: "Left home" })).text)
+  const [comment] = added.comments
+  expect(comment).toMatchObject({ text: "Left home" })
+  await call("update_task_comment", { id: task.id, commentId: comment.id, text: "Left home at 9" })
+  expect(JSON.parse((await call("get_task", { id: task.id })).text).comments).toMatchObject([{ id: comment.id, text: "Left home at 9" }])
+  expect(JSON.parse((await call("delete_task_comment", { id: task.id, commentId: comment.id })).text).comments).toEqual([])
+  expect(await call("add_task_comment", { id: task.id, text: "" })).toEqual({ isError: true, text: "comment text is required" })
 })

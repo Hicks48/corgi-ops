@@ -18,8 +18,10 @@ import {
   migrate,
   newId,
   NewTaskSchema,
+  CommentInputSchema,
   TaskPatchSchema,
   TodoFileSchema,
+  type Comment,
   type NewTask,
   type Status,
   type Task,
@@ -120,6 +122,7 @@ export class TodoStore {
         description: fields.description,
         targetDate: fields.targetDate ?? this.today(),
         fields: fields.fields ?? [],
+        comments: [],
         createdAt: now,
         updatedAt: now,
       }
@@ -140,13 +143,15 @@ export class TodoStore {
   }
 
   async update(id: string, patch: TaskPatch): Promise<Task> {
-    const { completionDate, parentId, ...parsed } = parse(TaskPatchSchema, patch)
+    const { completionDate, parentId, comments, ...parsed } = parse(TaskPatchSchema, patch)
     const fields = defined(parsed)
     return this.todos.mutate((data) => {
       const task = find(data, id)
       const previous = task.completionDate
+      const now = this.now().toISOString()
       if (fields.fields) assertUnlocked(task.fields, fields.fields)
-      Object.assign(task, fields, { updatedAt: this.now().toISOString() })
+      Object.assign(task, fields, { updatedAt: now })
+      if (comments) task.comments = reconcileComments(task, comments, now)
       this.applyCompletion(task, completionDate, previous)
       applyParent(data, task, parentId)
       return task
@@ -189,6 +194,39 @@ export class TodoStore {
         fields: withoutField(task.fields, name, `task ${id}`),
         updatedAt: this.now().toISOString(),
       })
+    })
+  }
+
+  async addComment(id: string, text: string): Promise<Task> {
+    const parsed = parse(CommentInputSchema, { text })
+    return this.todos.mutate((data) => {
+      const task = find(data, id)
+      const now = this.now().toISOString()
+      task.comments.push({ id: newId(), text: parsed.text, createdAt: now, updatedAt: now })
+      task.updatedAt = now
+      return task
+    })
+  }
+
+  async updateComment(id: string, commentId: string, text: string): Promise<Task> {
+    const parsed = parse(CommentInputSchema, { text })
+    return this.todos.mutate((data) => {
+      const task = find(data, id)
+      const comment = findComment(task, commentId)
+      const now = this.now().toISOString()
+      if (comment.text !== parsed.text) Object.assign(comment, { text: parsed.text, updatedAt: now })
+      task.updatedAt = now
+      return task
+    })
+  }
+
+  async removeComment(id: string, commentId: string): Promise<Task> {
+    return this.todos.mutate((data) => {
+      const task = find(data, id)
+      findComment(task, commentId)
+      task.comments = task.comments.filter((c) => c.id !== commentId)
+      task.updatedAt = this.now().toISOString()
+      return task
     })
   }
 
@@ -325,6 +363,23 @@ const applyParent = (data: TodoFile, task: Task, parentId: string | null | undef
     ancestor = ancestor.parentId === undefined ? undefined : data.tasks.find((t) => t.id === ancestor!.parentId)
   }
   task.parentId = parentId
+}
+
+const findComment = (task: Task, commentId: string): Comment => {
+  const comment = task.comments.find((c) => c.id === commentId.trim())
+  if (!comment) throw new TodoError(`task ${task.id} has no comment ${commentId}`)
+  return comment
+}
+
+/** The task's comments after `update({ comments })`. Only changed text moves a comment's `updatedAt`. */
+const reconcileComments = (task: Task, inputs: z.output<typeof CommentInputSchema>[], now: string): Comment[] => {
+  const ids = inputs.flatMap((c) => (c.id === undefined ? [] : [c.id]))
+  if (new Set(ids).size !== ids.length) throw new TodoError("a comment is listed twice")
+  return inputs.map(({ id, text }): Comment => {
+    if (id === undefined) return { id: newId(), text, createdAt: now, updatedAt: now }
+    const comment = findComment(task, id)
+    return comment.text === text ? comment : { ...comment, text, updatedAt: now }
+  })
 }
 
 const find = (data: TodoFile, id: string): Task => {

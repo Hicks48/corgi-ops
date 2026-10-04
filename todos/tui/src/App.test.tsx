@@ -600,9 +600,7 @@ test("sets a parent, copies the id, jumps between parent and subtasks", async ()
   expect(frame).toContain("Subtasks")
   expect(frame).toContain("Brush corgi")
 
-  // title -> description -> subtask, enter opens it.
-  ui.mockInput.pressTab()
-  await settle()
+  // title -> subtask, enter opens it.
   ui.mockInput.pressTab()
   await settle()
   ui.mockInput.pressEnter()
@@ -622,4 +620,47 @@ test("sets a parent, copies the id, jumps between parent and subtasks", async ()
   await see("y to confirm")
   ui.mockInput.pressKey("y")
   await see("has 1 subtask")
+})
+
+test("adds, edits and removes comments, saved with the task", async () => {
+  const task = await store.add({ title: "Walk corgi", description: "Around the block" })
+  await store.addComment(task.id, "Leash found")
+  await store.addComment(task.id, "Left home")
+  await mount()
+  await see("Walk corgi")
+  ui.mockInput.pressEnter()
+  const frame = await see("Leash found")
+  expect(frame).toContain("Comment · 2026-10-03 12:00")
+
+  // title -> description -> first comment
+  ui.mockInput.pressTab()
+  await settle()
+  ui.mockInput.pressTab()
+  await settle()
+  ui.mockInput.pressKey("x", { ctrl: true })
+  await see("Removed comment")
+  await gone("Leash found")
+
+  // Now on "Left home": edit it, then add one in the new-comment box.
+  ui.mockInput.pressKey("END")
+  await ui.mockInput.typeText(" at 9")
+  ui.mockInput.pressTab()
+  await settle()
+  await ui.mockInput.typeText("Back home")
+  save()
+  await see("[ +1 day ]")
+  expect((await store.get(task.id)).comments.map((c) => c.text)).toEqual(["Left home at 9", "Back home"])
+
+  // esc discards a staged removal.
+  ui.mockInput.pressEnter()
+  await see("Back home")
+  ui.mockInput.pressTab()
+  await settle()
+  ui.mockInput.pressTab()
+  await settle()
+  ui.mockInput.pressKey("x", { ctrl: true })
+  await see("Removed comment")
+  ui.mockInput.pressEscape()
+  await see("Current Tasks")
+  expect((await store.get(task.id)).comments).toHaveLength(2)
 })

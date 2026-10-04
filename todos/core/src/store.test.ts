@@ -36,7 +36,7 @@ describe("TodoStore", () => {
     expect(b.completionDate).toBe("2026-10-03")
 
     const onDisk = JSON.parse(await readFile(store.file, "utf8"))
-    expect(onDisk.schemaVersion).toBe(4)
+    expect(onDisk.schemaVersion).toBe(5)
     expect(onDisk.tasks).toHaveLength(2)
     expect(await new TodoStore({ dir: store.dir, now: () => clock }).list({ status: "done" })).toEqual([b])
   })
@@ -142,6 +142,20 @@ describe("TodoStore", () => {
     expect(await titles("current")).toEqual(["doing-overdue", "todo-today", "soon"])
   })
 
+  test("migrates schema v4 files", async () => {
+    await store.list()
+    const at = new Date(2026, 9, 1, 9).toISOString()
+    const id = crypto.randomUUID()
+    const v4 = {
+      schemaVersion: 4,
+      tasks: [{ id, title: "A", description: "a", status: "todo", targetDate: "2026-10-01", fields: [], createdAt: at, updatedAt: at }],
+    }
+    await writeFile(store.file, JSON.stringify(v4))
+    expect(await store.list()).toMatchObject([{ id, comments: [] }])
+    await store.add({ title: "B", description: "b" })
+    expect(JSON.parse(await readFile(store.file, "utf8")).schemaVersion).toBe(5)
+  })
+
   test("rejects pre-uuid files instead of overwriting them", async () => {
     await store.list()
     const v3 = { schemaVersion: 3, nextId: 1, tasks: [] }
@@ -190,6 +204,47 @@ describe("subtasks", () => {
     await store.remove(child.id)
     await store.remove(parent.id)
     expect(await store.list()).toEqual([])
+  })
+})
+
+describe("comments", () => {
+  test("add, update and remove, with timestamps", async () => {
+    const task = await store.add({ title: "A", description: "a" })
+    expect(task.comments).toEqual([])
+    const added = await store.addComment(task.id, " Started ")
+    const [comment] = added.comments
+    expect(comment).toMatchObject({ text: "Started", createdAt: clock.toISOString(), updatedAt: clock.toISOString() })
+    await expect(store.addComment(task.id, " ")).rejects.toThrow("comment text is required")
+
+    clock = new Date(2026, 9, 3, 13)
+    const updated = await store.updateComment(task.id, comment!.id, "Halfway")
+    expect(updated.comments).toEqual([{ ...comment!, text: "Halfway", updatedAt: clock.toISOString() }])
+    expect(updated.updatedAt).toBe(clock.toISOString())
+    await expect(store.updateComment(task.id, "nope", "x")).rejects.toThrow(`task ${task.id} has no comment nope`)
+
+    expect((await store.removeComment(task.id, comment!.id)).comments).toEqual([])
+    await expect(store.removeComment(task.id, comment!.id)).rejects.toThrow("has no comment")
+  })
+
+  test("update({ comments }) keeps, edits, adds and drops comments", async () => {
+    const task = await store.add({ title: "A", description: "a" })
+    await store.addComment(task.id, "one")
+    await store.addComment(task.id, "two")
+    const [one, two] = (await store.addComment(task.id, "three")).comments
+
+    clock = new Date(2026, 9, 3, 13)
+    const { comments } = await store.update(task.id, {
+      comments: [{ id: one!.id, text: "one" }, { id: two!.id, text: "two!" }, { text: "four" }],
+    })
+    expect(comments).toEqual([
+      one!,
+      { ...two!, text: "two!", updatedAt: clock.toISOString() },
+      { id: expect.any(String), text: "four", createdAt: clock.toISOString(), updatedAt: clock.toISOString() },
+    ])
+    // Omitted leaves them alone.
+    expect((await store.update(task.id, { title: "A2" })).comments).toEqual(comments)
+    await expect(store.update(task.id, { comments: [{ id: crypto.randomUUID(), text: "x" }] })).rejects.toThrow("has no comment")
+    await expect(store.update(task.id, { comments: [{ id: one!.id, text: "a" }, { id: one!.id, text: "b" }] })).rejects.toThrow("listed twice")
   })
 })
 

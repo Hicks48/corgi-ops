@@ -13,6 +13,8 @@ const parentId = z
   .string()
   .nullable()
   .describe("Id of the parent task, making this a subtask; null for none. Must exist and not create a cycle.")
+const commentId = z.string().describe("Comment id (uuid), from the task's comments")
+const commentText = z.string().describe("Comment text (non-empty)")
 const fieldName = z.string().describe("Field name, unique within the task")
 const fieldOptions = {
   type: z
@@ -139,6 +141,35 @@ export function createServer(store: TodoStore = new TodoStore()): McpServer {
       annotations: { destructiveHint: true },
     },
     ({ id, name }) => run(() => store.removeField(id, name)),
+  )
+
+  server.registerTool(
+    "add_task_comment",
+    {
+      description: "Add a comment (e.g. a progress note) to a task. Comments are returned with the task, oldest first.",
+      inputSchema: { id, text: commentText },
+    },
+    ({ id, text }) => run(() => store.addComment(id, text)),
+  )
+
+  server.registerTool(
+    "update_task_comment",
+    {
+      description: "Change a comment's text.",
+      inputSchema: { id, commentId, text: commentText },
+      annotations: { idempotentHint: true },
+    },
+    ({ id, commentId, text }) => run(() => store.updateComment(id, commentId, text)),
+  )
+
+  server.registerTool(
+    "delete_task_comment",
+    {
+      description: "Permanently delete a comment from a task.",
+      inputSchema: { id, commentId },
+      annotations: { destructiveHint: true },
+    },
+    ({ id, commentId }) => run(() => store.removeComment(id, commentId)),
   )
 
   server.registerTool(

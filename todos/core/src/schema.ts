@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { FieldListSchema } from "./fields.ts"
 
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 export const STATUSES = ["todo", "in-progress", "done"] as const
 export const StatusSchema = z.enum(STATUSES)
@@ -24,6 +24,21 @@ export const shortId = (id: string): string => id.slice(0, 8)
 
 const parentId = z.string().trim().pipe(z.uuid("parentId must be a task id (uuid)"))
 
+const commentText = requiredText("comment text")
+
+/** A progress note on a task. */
+export const CommentSchema = z.object({
+  id: IdSchema,
+  text: commentText,
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+})
+export type Comment = z.infer<typeof CommentSchema>
+
+/** A comment as given in `update({ comments })`: with the id of an existing one, or without for a new one. */
+export const CommentInputSchema = z.object({ id: IdSchema.optional(), text: commentText })
+export type CommentInput = z.input<typeof CommentInputSchema>
+
 export const TaskSchema = z.object({
   id: IdSchema,
   /** Makes this a subtask of that task. */
@@ -37,6 +52,8 @@ export const TaskSchema = z.object({
   completionDate: localDate("completionDate").optional(),
   /** User-defined fields, in display order. */
   fields: FieldListSchema,
+  /** Oldest first. */
+  comments: z.array(CommentSchema),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 })
@@ -54,8 +71,11 @@ export const NewTaskSchema = z.object({
 })
 export type NewTask = z.input<typeof NewTaskSchema>
 
-/** `fields` replaces the whole list; `parentId: null` clears the parent. */
-export const TaskPatchSchema = NewTaskSchema.extend({ status: StatusSchema }).partial()
+/**
+ * `fields` replaces the whole list; `parentId: null` clears the parent. `comments` replaces the list too:
+ * listed ids are kept (text updated), new ones added, missing ones removed.
+ */
+export const TaskPatchSchema = NewTaskSchema.extend({ status: StatusSchema, comments: z.array(CommentInputSchema) }).partial()
 export type TaskPatch = z.input<typeof TaskPatchSchema>
 
 export const TodoFileSchema = z.object({
@@ -69,7 +89,9 @@ export const emptyTodoFile = (): TodoFile => ({ schemaVersion: SCHEMA_VERSION, t
 type RawFile = { schemaVersion?: number; tasks?: Record<string, unknown>[] }
 
 // Pre-v4 files (numeric ids) are not migrated: the app was not in use yet.
-const STEPS: Record<number, (tasks: Record<string, unknown>[]) => Record<string, unknown>[]> = {}
+const STEPS: Record<number, (tasks: Record<string, unknown>[]) => Record<string, unknown>[]> = {
+  4: (tasks) => tasks.map((task) => ({ ...task, comments: [] })),
+}
 
 /** Upgrades older file formats in memory; the upgraded form is persisted on the next write. */
 export const migrate = (raw: unknown): unknown => {

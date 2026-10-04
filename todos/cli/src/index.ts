@@ -37,6 +37,10 @@ Usage:
                         [--visible-on-lists true|false] [--textbox true|false]
                                 Add a custom field, or change the one with that name
   corgi-todos field rm <id> <name>
+  corgi-todos comment add <id> --text <text>
+  corgi-todos comment update <id> <comment-id> --text <text>
+  corgi-todos comment rm <id> <comment-id>
+                                Comments are listed by show, oldest first
 
   corgi-todos template list
   corgi-todos template show <template>
@@ -114,6 +118,11 @@ const formatDetail = (t: TaskWithSubtasks) =>
     `Updated: ${t.updatedAt}`,
     "",
     t.description,
+    ...(t.comments.length ? ["", "Comments:"] : []),
+    ...t.comments.flatMap((c) => [
+      `  ${c.id}  ${c.createdAt}${c.updatedAt === c.createdAt ? "" : ` (edited ${c.updatedAt})`}`,
+      ...c.text.split("\n").map((line) => `    ${line}`),
+    ]),
   ].join("\n")
 
 const formatTemplateLine = (t: Template) => `${t.id}  ${t.name}${t.title ? `  (${t.title})` : ""}`
@@ -148,6 +157,7 @@ async function main(argv: string[]): Promise<void> {
       textbox: { type: "string" },
       template: { type: "string" },
       parent: { type: "string" },
+      text: { type: "string" },
       json: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -304,6 +314,31 @@ async function main(argv: string[]): Promise<void> {
         return
       }
       throw new UsageError(`unknown field action: ${action ?? "(missing)"} (expected set, rm)`)
+    }
+    case "comment": {
+      const [action, rawId, commentId] = args
+      const id = parseId(rawId)
+      const text = () => {
+        if (values.text === undefined) throw new UsageError(`comment ${action} requires --text`)
+        return values.text
+      }
+      const missingComment = () => new UsageError(`comment ${action} requires a comment id`)
+      if (action === "add") {
+        const task = await store.addComment(id, text())
+        print(task, `${task.id} comment ${task.comments.at(-1)!.id} added`)
+        return
+      }
+      if (action === "update") {
+        if (!commentId) throw missingComment()
+        print(await store.updateComment(id, commentId, text()), `${id} comment ${commentId} updated`)
+        return
+      }
+      if (action === "rm") {
+        if (!commentId) throw missingComment()
+        print(await store.removeComment(id, commentId), `${id} comment ${commentId} removed`)
+        return
+      }
+      throw new UsageError(`unknown comment action: ${action ?? "(missing)"} (expected add, update, rm)`)
     }
     case "template":
       return template(args)

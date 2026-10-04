@@ -7,7 +7,8 @@ Tasks have a required title and description, a status (`todo`, `in-progress`, `d
 date (the day it's planned for) and, once done, a completion date. Tasks can also carry custom fields
 (see below). Tasks and templates have uuid ids. A task can name another as its parent (`parentId`),
 making it a subtask; the parent must exist, can't create a cycle, and can't be deleted while it has
-subtasks. Data lives in
+subtasks. Tasks also hold comments (progress notes: `text`, `createdAt`, `updatedAt`), oldest first.
+Data lives in
 `~/.corgiops/todos/todos.json` (created on first use). Set `CORGIOPS_HOME` to use a different root
 than `~/.corgiops`.
 
@@ -54,7 +55,9 @@ Task details: `tab` / `shift+tab` or a click move between fields, `←` `→` ch
 `esc` back without saving, `ctrl+d` delete (asks to confirm). Created/updated times are shown read-only.
 The `Id` box shows the short id; `ctrl+y` on it (or `[ copy ]`) copies the full id. `Parent` takes a
 parent task's id (empty for none); `ctrl+p` or `[ open ]` opens the saved parent, discarding unsaved edits.
-A parent lists its subtasks below the description; `tab` to one and `enter` (or `[ open ]`) opens it.
+A parent lists its subtasks above the description; `tab` to one and `enter` (or `[ open ]`) opens it.
+Comments are listed below the description and edited in place; type in `New comment` to add one, `ctrl+x`
+on a comment removes it. Like everything else, comment changes are saved with `ctrl+s`.
 Custom fields: `ctrl+n` new field, and on a focused field `ctrl+y` copy, `ctrl+o` open (links),
 `ctrl+x` remove. Field changes are saved with `ctrl+s` like everything else.
 Date inputs only accept digits and format them as `YYYY-MM-DD` (incomplete or impossible dates show red).
@@ -82,19 +85,22 @@ bun run todos:cli rm <id>
 bun run todos:cli field set <id> --name <name> [--type text|link|date|timestamp] [--value <text>]
                   [--editable true|false] [--visible-on-lists true|false] [--textbox true|false]
 bun run todos:cli field rm <id> <name>
+bun run todos:cli comment add <id> --text <text>
+bun run todos:cli comment update <id> <comment-id> --text <text>
+bun run todos:cli comment rm <id> <comment-id>
 bun run todos:cli add --template <id|name> [--title ...] [--description ...] [...]
 bun run todos:cli template list|show|add|update|rm ...
 bun run todos:cli template field set|rm <id|name> ...
 ```
 Ids are the full uuids shown by `list`. `--parent ""` clears the parent. `show` lists the ids of the
-task's subtasks (also in `--json`, as `subtaskIds`).
+task's subtasks (also in `--json`, as `subtaskIds`) and its comments with their ids.
 `field set` adds the field or changes the one with that name; unspecified options keep their values.
 `add --template` starts from the template; options given on the command line win. Run with `--help` for
 the full template usage.
 
 ## MCP server
 Tools: `list_tasks`, `get_task`, `add_task` (accepts `fields`), `update_task`, `set_task_field`,
-`remove_task_field`, `set_task_status`, `postpone_task`, `pull_task_to_today`, `reopen_task`, `delete_task`,
+`remove_task_field`, `add_task_comment`, `update_task_comment`, `delete_task_comment`, `set_task_status`, `postpone_task`, `pull_task_to_today`, `reopen_task`, `delete_task`,
 `list_templates`, `get_template`, `add_template`, `update_template`, `set_template_field`,
 `remove_template_field`, `delete_template`. `add_task` accepts `template` (id or name). `add_task` and
 `update_task` accept `parentId` (`null` clears it). `get_task` also returns `subtaskIds`.
