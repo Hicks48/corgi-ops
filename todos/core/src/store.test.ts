@@ -26,16 +26,17 @@ describe("TodoStore", () => {
     expect(existsSync(store.dir)).toBe(true)
   })
 
-  test("adds tasks with incrementing ids and persists them", async () => {
+  test("adds tasks with uuid ids and persists them", async () => {
     const a = await store.add({ title: "A", description: "first" })
     const b = await store.add({ title: "B", description: "second", status: "done" })
-    expect([a.id, b.id]).toEqual([1, 2])
+    expect(a.id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(a.id).not.toBe(b.id)
     expect(a).toMatchObject({ status: "todo", targetDate: "2026-10-03" })
     expect(a.completionDate).toBeUndefined()
     expect(b.completionDate).toBe("2026-10-03")
 
     const onDisk = JSON.parse(await readFile(store.file, "utf8"))
-    expect(onDisk.schemaVersion).toBe(3)
+    expect(onDisk.schemaVersion).toBe(4)
     expect(onDisk.tasks).toHaveLength(2)
     expect(await new TodoStore({ dir: store.dir, now: () => clock }).list({ status: "done" })).toEqual([b])
   })
@@ -60,20 +61,14 @@ describe("TodoStore", () => {
     expect((await store.setStatus(task.id, "in-progress")).status).toBe("in-progress")
     await store.remove(task.id)
     expect(await store.list()).toEqual([])
-    await expect(store.get(task.id)).rejects.toThrow("task 1 not found")
-  })
-
-  test("does not reuse ids after removal", async () => {
-    const a = await store.add({ title: "A", description: "a" })
-    await store.remove(a.id)
-    expect((await store.add({ title: "B", description: "b" })).id).toBe(2)
+    await expect(store.get(task.id)).rejects.toThrow(`task ${task.id} not found`)
   })
 
   test("concurrent writers do not lose tasks", async () => {
     const stores = Array.from({ length: 20 }, () => new TodoStore({ dir: store.dir, now: () => clock }))
     await Promise.all(stores.map((s, i) => s.add({ title: `T${i}`, description: "d" })))
-    const ids = (await store.list()).map((t) => t.id).sort((x, y) => x - y)
-    expect(ids).toEqual(Array.from({ length: 20 }, (_, i) => i + 1))
+    const titles = (await store.list()).map((t) => t.title).sort()
+    expect(titles).toEqual(Array.from({ length: 20 }, (_, i) => `T${i}`).sort())
   })
 
   test("reports a corrupt file instead of overwriting it", async () => {
@@ -147,37 +142,45 @@ describe("TodoStore", () => {
     expect(await titles("current")).toEqual(["doing-overdue", "todo-today", "soon"])
   })
 
-  test("migrates schema v1 files", async () => {
+  test("rejects pre-uuid files instead of overwriting them", async () => {
     await store.list()
-    const v1 = {
-      schemaVersion: 1,
-      nextId: 3,
-      tasks: [
-        { id: 1, title: "A", description: "a", status: "in_progress", createdAt: new Date(2026, 9, 1, 9).toISOString(), updatedAt: new Date(2026, 9, 1, 9).toISOString() },
-        { id: 2, title: "B", description: "b", status: "done", createdAt: new Date(2026, 9, 1, 9).toISOString(), updatedAt: new Date(2026, 9, 2, 9).toISOString() },
-      ],
-    }
-    await writeFile(store.file, JSON.stringify(v1))
-    expect(await store.list()).toMatchObject([
-      { id: 1, status: "in-progress", targetDate: "2026-10-01" },
-      { id: 2, status: "done", targetDate: "2026-10-01", completionDate: "2026-10-02" },
-    ])
-    await store.add({ title: "C", description: "c" })
-    expect(JSON.parse(await readFile(store.file, "utf8")).schemaVersion).toBe(3)
+    const v3 = { schemaVersion: 3, nextId: 1, tasks: [] }
+    await writeFile(store.file, JSON.stringify(v3))
+    await expect(store.add({ title: "A", description: "a" })).rejects.toThrow("unsupported format")
+  })
+})
+
+describe("subtasks", () => {
+  test("parentId sets, changes and clears the parent", async () => {
+    const parent = await store.add({ title: "P", description: "p" })
+    const other = await store.add({ title: "O", description: "o" })
+    const child = await store.add({ title: "C", description: "c", parentId: ` ${parent.id} ` })
+    expect(child.parentId).toBe(parent.id)
+    expect((await store.update(child.id, { title: "C2", parentId: undefined })).parentId).toBe(parent.id)
+    expect((await store.update(child.id, { parentId: other.id })).parentId).toBe(other.id)
+    expect((await store.update(child.id, { parentId: null })).parentId).toBeUndefined()
+    expect((await store.add({ title: "D", description: "d", parentId: null })).parentId).toBeUndefined()
   })
 
-  test("migrates schema v2 files", async () => {
-    await store.list()
-    const at = new Date(2026, 9, 1, 9).toISOString()
-    const v2 = {
-      schemaVersion: 2,
-      nextId: 2,
-      tasks: [{ id: 1, title: "A", description: "a", status: "todo", targetDate: "2026-10-01", createdAt: at, updatedAt: at }],
-    }
-    await writeFile(store.file, JSON.stringify(v2))
-    expect(await store.list()).toMatchObject([{ id: 1, fields: [] }])
-    await store.add({ title: "B", description: "b" })
-    expect(JSON.parse(await readFile(store.file, "utf8")).schemaVersion).toBe(3)
+  test("rejects unknown parents and cycles", async () => {
+    const a = await store.add({ title: "A", description: "a" })
+    const b = await store.add({ title: "B", description: "b", parentId: a.id })
+    const c = await store.add({ title: "C", description: "c", parentId: b.id })
+    await expect(store.add({ title: "X", description: "x", parentId: "nope" })).rejects.toThrow("parentId must be a task id")
+    const missing = crypto.randomUUID()
+    await expect(store.add({ title: "X", description: "x", parentId: missing })).rejects.toThrow(`task ${missing} not found`)
+    await expect(store.update(a.id, { parentId: a.id })).rejects.toThrow("own parent or ancestor")
+    await expect(store.update(a.id, { parentId: c.id })).rejects.toThrow("own parent or ancestor")
+    expect((await store.get(a.id)).parentId).toBeUndefined()
+  })
+
+  test("a task with subtasks can't be removed", async () => {
+    const parent = await store.add({ title: "P", description: "p" })
+    const child = await store.add({ title: "C", description: "c", parentId: parent.id })
+    await expect(store.remove(parent.id)).rejects.toThrow("has 1 subtask; delete or move them first")
+    await store.remove(child.id)
+    await store.remove(parent.id)
+    expect(await store.list()).toEqual([])
   })
 })
 
@@ -236,14 +239,14 @@ describe("custom fields", () => {
 describe("templates", () => {
   test("CRUD, stored apart from tasks", async () => {
     const bug = await store.addTemplate({ name: "Bug", title: "Fix: ", fields: [{ type: "link", name: "Issue" }] })
-    expect(bug).toMatchObject({ id: 1, name: "Bug", title: "Fix:", description: "", fields: [{ name: "Issue", value: "" }] })
+    expect(bug).toMatchObject({ name: "Bug", title: "Fix:", description: "", fields: [{ name: "Issue", value: "" }] })
     await store.addTemplate({ name: "Admin" })
     expect((await store.listTemplates()).map((t) => t.name)).toEqual(["Admin", "Bug"])
     expect(existsSync(store.templatesFile)).toBe(true)
     expect(existsSync(store.file)).toBe(false)
 
     await expect(store.addTemplate({ name: "Bug" })).rejects.toThrow('a template named "Bug" already exists')
-    await expect(store.updateTemplate(1, { name: "Admin" })).rejects.toThrow("already exists")
+    await expect(store.updateTemplate(bug.id, { name: "Admin" })).rejects.toThrow("already exists")
     await expect(store.addTemplate({ name: " " })).rejects.toThrow("template name is required")
 
     expect(await store.updateTemplate("Bug", { name: "Defect", description: "Steps:", title: undefined })).toMatchObject({
@@ -251,18 +254,18 @@ describe("templates", () => {
       title: "Fix:",
       description: "Steps:",
     })
-    expect((await store.setTemplateField(1, { name: "Issue", value: "https://x", editable: false })).fields[0]).toMatchObject({
+    expect((await store.setTemplateField(bug.id, { name: "Issue", value: "https://x", editable: false })).fields[0]).toMatchObject({
       type: "link",
       value: "https://x",
       editable: false,
     })
     // Not locked on a template.
-    expect((await store.setTemplateField(1, { name: "Issue", value: "https://y" })).fields[0]!.value).toBe("https://y")
+    expect((await store.setTemplateField(bug.id, { name: "Issue", value: "https://y" })).fields[0]!.value).toBe("https://y")
     expect((await store.removeTemplateField("Defect", "Issue")).fields).toEqual([])
-    await expect(store.removeTemplateField(1, "Issue")).rejects.toThrow('template "Defect" has no field "Issue"')
+    await expect(store.removeTemplateField(bug.id, "Issue")).rejects.toThrow('template "Defect" has no field "Issue"')
 
     await store.removeTemplate("Defect")
-    await expect(store.getTemplate(1)).rejects.toThrow("template 1 not found")
+    await expect(store.getTemplate(bug.id)).rejects.toThrow(`template "${bug.id}" not found`)
     await expect(store.getTemplate("Nope")).rejects.toThrow('template "Nope" not found')
   })
 
@@ -294,7 +297,7 @@ describe("templates", () => {
 
 describe("applyTemplate", () => {
   const template = (fields: Partial<Template>): Template => ({
-    id: 1,
+    id: "00000000-0000-4000-8000-000000000000",
     name: "T",
     title: "",
     description: "",

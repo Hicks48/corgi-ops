@@ -16,6 +16,7 @@ import { todosDir } from "./paths.ts"
 import {
   emptyTodoFile,
   migrate,
+  newId,
   NewTaskSchema,
   TaskPatchSchema,
   TodoFileSchema,
@@ -53,7 +54,7 @@ const defined = <T extends object>(obj: T): Partial<T> =>
   Object.fromEntries(Object.entries(obj).filter(([, value]) => value !== undefined)) as Partial<T>
 
 /** A template by id, or by name. */
-export type TemplateRef = number | string
+export type TemplateRef = string
 
 export interface TaskFilter {
   status?: Status
@@ -95,16 +96,16 @@ export class TodoStore {
     return filter.status ? tasks.filter((t) => t.status === filter.status) : tasks
   }
 
-  async get(id: number): Promise<Task> {
+  async get(id: string): Promise<Task> {
     return find(await this.todos.read(), id)
   }
 
   async add(input: NewTask): Promise<Task> {
-    const { completionDate, ...fields } = parse(NewTaskSchema, input)
+    const { completionDate, parentId, ...fields } = parse(NewTaskSchema, input)
     return this.todos.mutate((data) => {
       const now = this.now().toISOString()
       const task: Task = {
-        id: data.nextId++,
+        id: newId(),
         status: fields.status,
         title: fields.title,
         description: fields.description,
@@ -114,6 +115,7 @@ export class TodoStore {
         updatedAt: now,
       }
       this.applyCompletion(task, completionDate, undefined)
+      applyParent(data, task, parentId)
       data.tasks.push(task)
       return task
     })
@@ -128,8 +130,8 @@ export class TodoStore {
     return this.add({ ...base, ...defined(rest), fields: upsertFields(base.fields, explicit) })
   }
 
-  async update(id: number, patch: TaskPatch): Promise<Task> {
-    const { completionDate, ...parsed } = parse(TaskPatchSchema, patch)
+  async update(id: string, patch: TaskPatch): Promise<Task> {
+    const { completionDate, parentId, ...parsed } = parse(TaskPatchSchema, patch)
     const fields = defined(parsed)
     return this.todos.mutate((data) => {
       const task = find(data, id)
@@ -137,30 +139,31 @@ export class TodoStore {
       if (fields.fields) assertUnlocked(task.fields, fields.fields)
       Object.assign(task, fields, { updatedAt: this.now().toISOString() })
       this.applyCompletion(task, completionDate, previous)
+      applyParent(data, task, parentId)
       return task
     })
   }
 
   /** Moves the task out of today: target becomes tomorrow, even if it was overdue. */
-  postpone(id: number): Promise<Task> {
+  postpone(id: string): Promise<Task> {
     return this.update(id, { targetDate: addDays(this.today(), 1) })
   }
 
-  pullToToday(id: number): Promise<Task> {
+  pullToToday(id: string): Promise<Task> {
     return this.update(id, { targetDate: this.today() })
   }
 
   /** Puts a done task back in progress for today. */
-  reopen(id: number): Promise<Task> {
+  reopen(id: string): Promise<Task> {
     return this.update(id, { status: "in-progress", targetDate: this.today() })
   }
 
-  setStatus(id: number, status: Status): Promise<Task> {
+  setStatus(id: string, status: Status): Promise<Task> {
     return this.update(id, { status })
   }
 
   /** Adds the field, or changes the one with the same name. Unspecified options keep their current value. */
-  async setField(id: number, patch: FieldPatch): Promise<Task> {
+  async setField(id: string, patch: FieldPatch): Promise<Task> {
     const parsed = parse(FieldPatchSchema, patch)
     return this.todos.mutate((data) => {
       const task = find(data, id)
@@ -170,7 +173,7 @@ export class TodoStore {
     })
   }
 
-  async removeField(id: number, name: string): Promise<Task> {
+  async removeField(id: string, name: string): Promise<Task> {
     return this.todos.mutate((data) => {
       const task = find(data, id)
       return Object.assign(task, {
@@ -180,9 +183,12 @@ export class TodoStore {
     })
   }
 
-  async remove(id: number): Promise<Task> {
+  /** Refuses while the task has subtasks. */
+  async remove(id: string): Promise<Task> {
     return this.todos.mutate((data) => {
       const task = find(data, id)
+      const subtasks = data.tasks.filter((t) => t.parentId === id).length
+      if (subtasks) throw new TodoError(`task ${id} has ${subtasks} subtask${subtasks === 1 ? "" : "s"}; delete or move them first`)
       data.tasks = data.tasks.filter((t) => t.id !== id)
       return task
     })
@@ -204,7 +210,7 @@ export class TodoStore {
       assertNameFree(data, parsed.name)
       const now = this.now().toISOString()
       const template: Template = {
-        id: data.nextId++,
+        id: newId(),
         name: parsed.name,
         title: parsed.title ?? "",
         description: parsed.description ?? "",
@@ -298,15 +304,29 @@ const assertUnlocked = (previous: CustomField[], next: CustomField[]) => {
   if (locked !== undefined) throw new TodoError(`field "${locked}" is not editable`)
 }
 
-const find = (data: TodoFile, id: number): Task => {
+/** Sets (string), clears (null) or leaves (undefined) the parent; refuses unknown parents and cycles. */
+const applyParent = (data: TodoFile, task: Task, parentId: string | null | undefined) => {
+  if (parentId === undefined) return
+  if (parentId === null) {
+    delete task.parentId
+    return
+  }
+  for (let ancestor: Task | undefined = find(data, parentId); ancestor; ) {
+    if (ancestor.id === task.id) throw new TodoError("a task can't be its own parent or ancestor")
+    ancestor = ancestor.parentId === undefined ? undefined : data.tasks.find((t) => t.id === ancestor!.parentId)
+  }
+  task.parentId = parentId
+}
+
+const find = (data: TodoFile, id: string): Task => {
   const task = data.tasks.find((t) => t.id === id)
   if (!task) throw new TodoError(`task ${id} not found`)
   return task
 }
 
 const findTemplate = (data: TemplateFile, ref: TemplateRef): Template => {
-  const template = data.templates.find((t) => (typeof ref === "number" ? t.id === ref : t.name === ref.trim()))
-  if (!template) throw new TodoError(`template ${typeof ref === "number" ? ref : `"${ref}"`} not found`)
+  const template = data.templates.find((t) => t.id === ref.trim()) ?? data.templates.find((t) => t.name === ref.trim())
+  if (!template) throw new TodoError(`template "${ref}" not found`)
   return template
 }
 

@@ -34,6 +34,7 @@ export interface FormApi {
   /** Replaces what the form shows. */
   replace: (values: FormValues) => void
   setError: (message: string) => void
+  setNotice: (message: string) => void
 }
 
 interface DetailsFormProps {
@@ -43,7 +44,7 @@ interface DetailsFormProps {
   /** Focus ids in the top row, in tab order before the title. */
   topIds: FocusId[]
   renderTop: (api: FormApi) => ReactNode
-  /** Keys the form doesn't handle itself, and every key while `suspended`. */
+  /** Keys the form doesn't handle itself (incl. ctrl+y / ctrl+o off a custom field), and every key while `suspended`. */
   onKey?: (key: KeyEvent, api: FormApi) => void
   /** True while the parent (e.g. a dropdown) owns the keyboard. */
   suspended?: boolean
@@ -115,7 +116,7 @@ export function DetailsForm(props: DetailsFormProps) {
   const busy = addingField || suspended
   const focused = (id: FocusId) => !busy && focus === id
   const borderColor = (id: FocusId) => (focused(id) ? theme.accent : theme.border)
-  const api: FormApi = { focus, setFocus, focused, borderColor, values, replace, setError }
+  const api: FormApi = { focus, setFocus, focused, borderColor, values, replace, setError, setNotice: show }
 
   const save = () => void onSave(values()).catch(fail)
 
@@ -167,11 +168,11 @@ export function DetailsForm(props: DetailsFormProps) {
           if (focusedCustom) removeField(focusedCustom)
           return
         case "y":
-          if (focusedCustom) fieldAction("copy", focusedCustom)
-          return
+          if (focusedCustom) return fieldAction("copy", focusedCustom)
+          break
         case "o":
-          if (focusedCustom?.type === "link") fieldAction("open", focusedCustom)
-          return
+          if (focusedCustom?.type === "link") return fieldAction("open", focusedCustom)
+          break
       }
     }
     onKey?.(key, api)

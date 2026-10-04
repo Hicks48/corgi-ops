@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { testRender } from "@opentui/react/test-utils"
-import { formatLocalDateTime, TodoStore } from "@corgiops/todos-core"
+import { formatLocalDateTime, shortId, TodoStore } from "@corgiops/todos-core"
 import { App } from "./App.tsx"
 import type { System } from "./system.ts"
 
@@ -56,6 +56,12 @@ const locate = (text: string) => {
 
 const save = () => ui.mockInput.pressKey("s", { ctrl: true })
 const settle = () => Bun.sleep(10)
+const tabBack = async (times: number) => {
+  for (let i = 0; i < times; i++) {
+    ui.mockInput.pressTab({ shift: true })
+    await settle()
+  }
+}
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "corgiops-"))
@@ -122,20 +128,20 @@ test("left and right arrows switch views too", async () => {
 })
 
 test("view actions: +1 day, pull to today, reopen", async () => {
-  await store.add({ title: "Walk corgi", description: "Around the block" })
-  await store.add({ title: "Bathe corgi", description: "Done", status: "done" })
+  const task1 = await store.add({ title: "Walk corgi", description: "Around the block" })
+  const task2 = await store.add({ title: "Bathe corgi", description: "Done", status: "done" })
   await mount()
   await see("Walk corgi")
 
   ui.mockInput.pressKey("+")
   await see("Nothing on for today")
-  expect((await store.get(1)).targetDate).toBe("2026-10-04")
+  expect((await store.get(task1.id)).targetDate).toBe("2026-10-04")
 
   ui.mockInput.pressKey("]")
   await see("Walk corgi")
   ui.mockInput.pressKey("t")
   await see("No upcoming tasks")
-  expect((await store.get(1)).targetDate).toBe("2026-10-03")
+  expect((await store.get(task1.id)).targetDate).toBe("2026-10-03")
 
   ui.mockInput.pressKey("[")
   await see("Walk corgi")
@@ -143,12 +149,12 @@ test("view actions: +1 day, pull to today, reopen", async () => {
   await see("Bathe corgi")
   ui.mockInput.pressKey("r")
   await see("No completed tasks yet")
-  expect(await store.get(2)).toMatchObject({ status: "in-progress", targetDate: "2026-10-03" })
+  expect(await store.get(task2.id)).toMatchObject({ status: "in-progress", targetDate: "2026-10-03" })
 })
 
 test("action buttons, cards and tabs respond to the mouse", async () => {
-  await store.add({ title: "Walk corgi", description: "Around the block" })
-  await store.add({ title: "Feed corgi", description: "Kibble" })
+  const task1 = await store.add({ title: "Walk corgi", description: "Around the block" })
+  const task2 = await store.add({ title: "Feed corgi", description: "Kibble" })
   await mount()
   await see("Feed corgi")
 
@@ -157,7 +163,7 @@ test("action buttons, cards and tabs respond to the mouse", async () => {
   const y = rows.findIndex((row) => row.includes("Feed corgi"))
   await ui.mockMouse.click(rows[y]!.indexOf("[ +1 day ]") + 2, y)
   await gone("Feed corgi")
-  expect((await store.get(2)).targetDate).toBe("2026-10-04")
+  expect((await store.get(task2.id)).targetDate).toBe("2026-10-04")
 
   const tab = locate("Upcoming Tasks")
   await ui.mockMouse.click(tab.x + 1, tab.y)
@@ -169,12 +175,12 @@ test("action buttons, cards and tabs respond to the mouse", async () => {
   // Clicking the selected card opens it.
   const title = locate("Walk corgi")
   await ui.mockMouse.click(title.x, title.y)
-  await see("Task #1")
+  await see(`Task ${shortId(task1.id)}`)
 })
 
 test("clicking a card selects it", async () => {
   await store.add({ title: "Walk corgi", description: "Around the block" })
-  await store.add({ title: "Feed corgi", description: "Kibble" })
+  const task2 = await store.add({ title: "Feed corgi", description: "Kibble" })
   await mount()
   await see("Feed corgi")
 
@@ -182,7 +188,7 @@ test("clicking a card selects it", async () => {
   await ui.mockMouse.click(desc.x, desc.y)
   await settle()
   ui.mockInput.pressEnter()
-  expect(await see("Task #2")).toContain("Kibble")
+  expect(await see(`Task ${shortId(task2.id)}`)).toContain("Kibble")
 })
 
 test("lists show visible custom fields with copy / open buttons", async () => {
@@ -210,11 +216,11 @@ test("lists show visible custom fields with copy / open buttons", async () => {
 })
 
 test("clicking a field in the details view focuses it", async () => {
-  await store.add({ title: "Walk corgi", description: "Around the block" })
+  const task1 = await store.add({ title: "Walk corgi", description: "Around the block" })
   await mount()
   await see("Walk corgi")
   ui.mockInput.pressEnter()
-  await see("Task #1")
+  await see(`Task ${shortId(task1.id)}`)
 
   const target = locate("2026-10-03")
   await ui.mockMouse.click(target.x + 2, target.y)
@@ -229,15 +235,15 @@ test("clicking a field in the details view focuses it", async () => {
   await ui.mockInput.typeText("!")
   save()
   await see("[ Pull to today ]")
-  expect(await store.get(1)).toMatchObject({ targetDate: "2026-10-05", description: "Around the block!" })
+  expect(await store.get(task1.id)).toMatchObject({ targetDate: "2026-10-05", description: "Around the block!" })
 })
 
 test("adds, edits and removes custom fields in the details view", async () => {
-  await store.add({ title: "Walk corgi", description: "Around the block" })
+  const task1 = await store.add({ title: "Walk corgi", description: "Around the block" })
   await mount()
   await see("Walk corgi")
   ui.mockInput.pressEnter()
-  await see("Task #1")
+  await see(`Task ${shortId(task1.id)}`)
 
   ui.mockInput.pressKey("n", { ctrl: true })
   await see("New field")
@@ -270,7 +276,7 @@ test("adds, edits and removes custom fields in the details view", async () => {
   save()
 
   expect(await see("Route: https://maps.example/park")).toContain("[ open ]")
-  expect((await store.get(1)).fields).toEqual([
+  expect((await store.get(task1.id)).fields).toEqual([
     { type: "link", name: "Route", value: "https://maps.example/park", editable: false, visibleOnLists: true },
   ])
 
@@ -284,11 +290,11 @@ test("adds, edits and removes custom fields in the details view", async () => {
   await gone("Route · link")
   save()
   await see("[ +1 day ]")
-  expect((await store.get(1)).fields).toEqual([])
+  expect((await store.get(task1.id)).fields).toEqual([])
 })
 
 test("editable custom fields save their typed value", async () => {
-  await store.add({
+  const task1 = await store.add({
     title: "Walk corgi",
     description: "Around the block",
     fields: [{ type: "date", name: "Vet", value: "2026-10-09" }],
@@ -304,7 +310,7 @@ test("editable custom fields save their typed value", async () => {
   await ui.mockInput.typeText("8")
   save()
   await see("[ +1 day ]")
-  expect((await store.get(1)).fields[0]!.value).toBe("2026-10-08")
+  expect((await store.get(task1.id)).fields[0]!.value).toBe("2026-10-08")
 
   ui.mockInput.pressEnter()
   await see("Vet · date")
@@ -355,39 +361,30 @@ test("required fields keep the details view open", async () => {
 })
 
 test("edits status, completion and target date in the details view", async () => {
-  await store.add({ title: "Walk corgi", description: "Around the block" })
+  const task1 = await store.add({ title: "Walk corgi", description: "Around the block" })
   await mount()
   await see("Walk corgi")
 
   ui.mockInput.pressEnter()
-  const details = await see("Task #1")
+  const details = await see(`Task ${shortId(task1.id)}`)
   expect(details).toContain("Around the block")
-  const created = formatLocalDateTime((await store.get(1)).createdAt)
+  const created = formatLocalDateTime((await store.get(task1.id)).createdAt)
   expect(details).toContain(`Created ${created} · Updated ${created}`)
   expect(details).not.toContain(" Completed ")
 
-  // title -> target date -> status
-  ui.mockInput.pressTab({ shift: true })
-  await settle()
-  ui.mockInput.pressTab({ shift: true })
-  await settle()
+  await tabBack(4) // title -> parent -> id -> target date -> status
   ui.mockInput.pressArrow("left")
   await see("‹ Done ›")
   await see(" Completed ")
   save()
 
   expect(await see("[ Reopen ]")).toContain("Walk corgi")
-  expect(await store.get(1)).toMatchObject({ status: "done", completionDate: "2026-10-03" })
+  expect(await store.get(task1.id)).toMatchObject({ status: "done", completionDate: "2026-10-03" })
 
   // Back to todo and into the future: lands in upcoming.
   ui.mockInput.pressEnter()
-  await see("Task #1")
-  ui.mockInput.pressTab({ shift: true }) // target date
-  await settle()
-  ui.mockInput.pressTab({ shift: true }) // completion date
-  await settle()
-  ui.mockInput.pressTab({ shift: true }) // status
-  await settle()
+  await see(`Task ${shortId(task1.id)}`)
+  await tabBack(5) // parent, id, target date, completion date, status
   ui.mockInput.pressArrow("right")
   await see("‹ Todo ›")
   ui.mockInput.pressTab() // target date (completion field is gone)
@@ -399,34 +396,32 @@ test("edits status, completion and target date in the details view", async () =>
   save()
 
   await see("[ Pull to today ]")
-  const task = await store.get(1)
+  const task = await store.get(task1.id)
   expect(task).toMatchObject({ status: "todo", targetDate: "2026-10-10" })
   expect(task.completionDate).toBeUndefined()
 })
 
 test("rejects an incomplete date", async () => {
-  await store.add({ title: "Walk corgi", description: "Around the block" })
+  const task1 = await store.add({ title: "Walk corgi", description: "Around the block" })
   await mount()
   await see("Walk corgi")
   ui.mockInput.pressEnter()
-  await see("Task #1")
-  ui.mockInput.pressTab({ shift: true })
-  await settle()
+  await see(`Task ${shortId(task1.id)}`)
+  await tabBack(3) // title -> parent -> id -> target date
   ui.mockInput.pressKey("END")
   ui.mockInput.pressKey("BACKSPACE")
   save()
   await see("must be a date")
-  expect((await store.get(1)).targetDate).toBe("2026-10-03")
+  expect((await store.get(task1.id)).targetDate).toBe("2026-10-03")
 })
 
 test("date inputs only take YYYY-MM-DD", async () => {
-  await store.add({ title: "Walk corgi", description: "Around the block" })
+  const task1 = await store.add({ title: "Walk corgi", description: "Around the block" })
   await mount()
   await see("Walk corgi")
   ui.mockInput.pressEnter()
-  await see("Task #1")
-  ui.mockInput.pressTab({ shift: true })
-  await settle()
+  await see(`Task ${shortId(task1.id)}`)
+  await tabBack(3) // title -> parent -> id -> target date
   ui.mockInput.pressKey("END")
   for (let i = 0; i < 10; i++) ui.mockInput.pressKey("BACKSPACE")
   await see("YYYY-MM-DD") // placeholder: empty
@@ -434,11 +429,11 @@ test("date inputs only take YYYY-MM-DD", async () => {
   await see("2026-10-12")
   save()
   await see("[ Pull to today ]")
-  expect((await store.get(1)).targetDate).toBe("2026-10-12")
+  expect((await store.get(task1.id)).targetDate).toBe("2026-10-12")
 })
 
 test("deletes only from the details view, after confirming", async () => {
-  await store.add({ title: "Walk corgi", description: "Around the block" })
+  const task1 = await store.add({ title: "Walk corgi", description: "Around the block" })
   await mount()
   await see("Walk corgi")
 
@@ -447,7 +442,7 @@ test("deletes only from the details view, after confirming", async () => {
   expect(await store.list()).toHaveLength(1)
 
   ui.mockInput.pressEnter()
-  await see("Task #1")
+  await see(`Task ${shortId(task1.id)}`)
   ui.mockInput.pressKey("d", { ctrl: true })
   await see("y to confirm")
   ui.mockInput.pressKey("n")
@@ -462,15 +457,15 @@ test("deletes only from the details view, after confirming", async () => {
 })
 
 test("esc leaves the details view without saving", async () => {
-  await store.add({ title: "Walk corgi", description: "Around the block" })
+  const task1 = await store.add({ title: "Walk corgi", description: "Around the block" })
   await mount()
   await see("Walk corgi")
   ui.mockInput.pressEnter()
-  await see("Task #1")
+  await see(`Task ${shortId(task1.id)}`)
   await ui.mockInput.typeText(" changed")
   ui.mockInput.pressEscape()
   await see("Current Tasks")
-  expect((await store.get(1)).title).toBe("Walk corgi")
+  expect((await store.get(task1.id)).title).toBe("Walk corgi")
 })
 
 test("picks up changes written by another process", async () => {
@@ -515,8 +510,9 @@ test("p opens templates: add, edit and delete", async () => {
     { name: "Daily walk", title: "Walk", description: "", fields: [{ name: "Route", value: "Park" }] },
   ])
 
+  const [template] = await store.listTemplates()
   ui.mockInput.pressEnter()
-  await see("Template #1")
+  await see(`Template ${shortId(template!.id)}`)
   ui.mockInput.pressKey("d", { ctrl: true })
   await see('Delete template "Daily walk"? y to confirm')
   ui.mockInput.pressKey("y")
@@ -546,11 +542,7 @@ test("a new task can start from a template", async () => {
   ui.mockInput.pressEnter() // description
   await settle()
   await ui.mockInput.typeText("My own description")
-  // description -> title -> target date -> status -> template
-  for (let i = 0; i < 4; i++) {
-    ui.mockInput.pressTab({ shift: true })
-    await settle()
-  }
+  await tabBack(5) // description -> title -> parent -> target date -> status -> template
   ui.mockInput.pressEnter()
   await see("Pick a template")
   ui.mockInput.pressArrow("down")
@@ -573,6 +565,41 @@ test("a new task can start from a template", async () => {
 
   // Not offered when editing.
   ui.mockInput.pressEnter()
-  await see("Task #1")
+  await see(`Task ${shortId(task!.id)}`)
   expect(ui.captureCharFrame()).not.toContain("Template")
+})
+
+test("sets a parent, copies the id and jumps to the parent", async () => {
+  const parent = await store.add({ title: "Groom corgi", description: "All of it" })
+  const child = await store.add({ title: "Brush corgi", description: "Coat" })
+  await mount()
+  await see("Brush corgi")
+
+  ui.mockInput.pressArrow("down")
+  await settle()
+  ui.mockInput.pressEnter()
+  await see(`Task ${shortId(child.id)}`)
+  await tabBack(1) // title -> parent
+  await ui.mockInput.typeText(parent.id)
+  save()
+  await see("[ +1 day ]")
+  expect((await store.get(child.id)).parentId).toBe(parent.id)
+
+  ui.mockInput.pressEnter()
+  await see("Parent · Groom corgi")
+  await tabBack(2) // title -> parent -> id
+  ui.mockInput.pressKey("y", { ctrl: true })
+  await see("Copied task id")
+  expect(effects).toEqual([`copy ${child.id}`])
+
+  await ui.mockInput.typeText("ignored")
+  ui.mockInput.pressKey("p", { ctrl: true })
+  const frame = await see(`Task ${shortId(parent.id)}`)
+  expect(frame).toContain("All of it")
+  expect(frame).not.toContain("Parent ·")
+
+  ui.mockInput.pressKey("d", { ctrl: true })
+  await see("y to confirm")
+  ui.mockInput.pressKey("y")
+  await see("has 1 subtask")
 })

@@ -1,8 +1,7 @@
 import { z } from "zod"
-import { toLocalDate } from "./dates.ts"
 import { FieldListSchema } from "./fields.ts"
 
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 export const STATUSES = ["todo", "in-progress", "done"] as const
 export const StatusSchema = z.enum(STATUSES)
@@ -17,8 +16,18 @@ export const STATUS_LABELS: Record<Status, string> = {
 const requiredText = (field: string) => z.string().trim().min(1, `${field} is required`)
 const localDate = (field: string) => z.iso.date(`${field} must be a date as YYYY-MM-DD`)
 
+/** Task and template ids are uuids. */
+export const IdSchema = z.uuid("id must be a uuid")
+export const newId = (): string => crypto.randomUUID()
+/** Enough of an id to tell tasks apart on screen. */
+export const shortId = (id: string): string => id.slice(0, 8)
+
+const parentId = z.string().trim().pipe(z.uuid("parentId must be a task id (uuid)"))
+
 export const TaskSchema = z.object({
-  id: z.number().int().positive(),
+  id: IdSchema,
+  /** Makes this a subtask of that task. */
+  parentId: parentId.optional(),
   title: requiredText("title"),
   description: requiredText("description"),
   status: StatusSchema,
@@ -40,37 +49,27 @@ export const NewTaskSchema = z.object({
   targetDate: localDate("targetDate").optional(),
   completionDate: localDate("completionDate").optional(),
   fields: FieldListSchema.optional(),
+  /** null = no parent. */
+  parentId: parentId.nullable().optional(),
 })
 export type NewTask = z.input<typeof NewTaskSchema>
 
-/** `fields` replaces the whole list. */
+/** `fields` replaces the whole list; `parentId: null` clears the parent. */
 export const TaskPatchSchema = NewTaskSchema.extend({ status: StatusSchema }).partial()
 export type TaskPatch = z.input<typeof TaskPatchSchema>
 
 export const TodoFileSchema = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
-  nextId: z.number().int().positive(),
   tasks: z.array(TaskSchema),
 })
 export type TodoFile = z.infer<typeof TodoFileSchema>
 
-export const emptyTodoFile = (): TodoFile => ({ schemaVersion: SCHEMA_VERSION, nextId: 1, tasks: [] })
+export const emptyTodoFile = (): TodoFile => ({ schemaVersion: SCHEMA_VERSION, tasks: [] })
 
 type RawFile = { schemaVersion?: number; tasks?: Record<string, unknown>[] }
 
-const STEPS: Record<number, (tasks: Record<string, unknown>[]) => Record<string, unknown>[]> = {
-  1: (tasks) =>
-    tasks.map((task) => {
-      const status = task.status === "in_progress" ? "in-progress" : task.status
-      return {
-        ...task,
-        status,
-        targetDate: toLocalDate(new Date(task.createdAt as string)),
-        completionDate: status === "done" ? toLocalDate(new Date(task.updatedAt as string)) : undefined,
-      }
-    }),
-  2: (tasks) => tasks.map((task) => ({ ...task, fields: [] })),
-}
+// Pre-v4 files (numeric ids) are not migrated: the app was not in use yet.
+const STEPS: Record<number, (tasks: Record<string, unknown>[]) => Record<string, unknown>[]> = {}
 
 /** Upgrades older file formats in memory; the upgraded form is persisted on the next write. */
 export const migrate = (raw: unknown): unknown => {

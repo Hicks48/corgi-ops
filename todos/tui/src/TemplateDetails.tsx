@@ -1,6 +1,6 @@
 import type { InputRenderable } from "@opentui/core"
 import { useRef } from "react"
-import { formatLocalDateTime, type NewTemplate, type Template } from "@corgiops/todos-core"
+import { formatLocalDateTime, shortId, type NewTemplate, type Template } from "@corgiops/todos-core"
 import { DetailsForm, type FormApi, type FormValues } from "./DetailsForm.tsx"
 import type { System } from "./system.ts"
 
@@ -37,7 +37,7 @@ export function TemplateDetails({ template, system, onSave, onDelete, onClose }:
 
   return (
     <DetailsForm
-      header={template ? `Template #${template.id}` : "New Template"}
+      header={template ? `Template ${shortId(template.id)}` : "New Template"}
       system={system}
       initial={{ title: template?.title ?? "", description: template?.description ?? "", fields: template?.fields ?? [] }}
       topIds={["name"]}

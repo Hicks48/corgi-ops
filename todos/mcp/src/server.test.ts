@@ -55,11 +55,12 @@ test("exposes the task tools", async () => {
 
 test("full task lifecycle", async () => {
   const added = JSON.parse((await call("add_task", { title: "Walk corgi", description: "Around the block" })).text)
-  expect(added).toMatchObject({ id: 1, status: "todo", targetDate: "2026-10-03" })
+  expect(added).toMatchObject({ status: "todo", targetDate: "2026-10-03" })
+  const id = added.id
 
-  await call("set_task_status", { id: 1, status: "in-progress" })
-  await call("update_task", { id: 1, title: "Walk the corgi" })
-  expect(JSON.parse((await call("get_task", { id: 1 })).text)).toMatchObject({
+  await call("set_task_status", { id, status: "in-progress" })
+  await call("update_task", { id, title: "Walk the corgi" })
+  expect(JSON.parse((await call("get_task", { id })).text)).toMatchObject({
     title: "Walk the corgi",
     description: "Around the block",
     status: "in-progress",
@@ -67,18 +68,18 @@ test("full task lifecycle", async () => {
   expect(JSON.parse((await call("list_tasks", { status: "todo" })).text)).toEqual([])
 
   expect(JSON.parse((await call("list_tasks", { view: "current" })).text)).toHaveLength(1)
-  expect(JSON.parse((await call("postpone_task", { id: 1 })).text).targetDate).toBe("2026-10-04")
+  expect(JSON.parse((await call("postpone_task", { id })).text).targetDate).toBe("2026-10-04")
   expect(JSON.parse((await call("list_tasks", { view: "upcoming" })).text)).toHaveLength(1)
-  await call("pull_task_to_today", { id: 1 })
-  expect(JSON.parse((await call("set_task_status", { id: 1, status: "done" })).text).completionDate).toBe("2026-10-03")
-  expect(JSON.parse((await call("reopen_task", { id: 1 })).text)).toMatchObject({ status: "in-progress" })
+  await call("pull_task_to_today", { id })
+  expect(JSON.parse((await call("set_task_status", { id, status: "done" })).text).completionDate).toBe("2026-10-03")
+  expect(JSON.parse((await call("reopen_task", { id })).text)).toMatchObject({ status: "in-progress" })
 
-  await call("delete_task", { id: 1 })
+  await call("delete_task", { id })
   expect(JSON.parse((await call("list_tasks")).text)).toEqual([])
 })
 
 test("domain errors come back as tool errors", async () => {
-  expect(await call("get_task", { id: 99 })).toEqual({ isError: true, text: "task 99 not found" })
+  expect(await call("get_task", { id: "nope" })).toEqual({ isError: true, text: "task nope not found" })
   const blank = await call("add_task", { title: " ", description: "x" })
   expect(blank).toEqual({ isError: true, text: "title is required" })
 })
@@ -86,23 +87,24 @@ test("domain errors come back as tool errors", async () => {
 test("custom fields", async () => {
   const fields = [{ type: "link", name: "PR", value: "https://example.com", editable: false }]
   const added = JSON.parse((await call("add_task", { title: "Review", description: "x", fields })).text)
+  const id = added.id
   expect(added.fields).toEqual([{ type: "link", name: "PR", value: "https://example.com", editable: false, visibleOnLists: false }])
 
-  expect(await call("set_task_field", { id: 1, name: "PR", value: "y" })).toEqual({ isError: true, text: 'field "PR" is not editable' })
-  const set = JSON.parse((await call("set_task_field", { id: 1, name: "Due", type: "date", value: "2026-10-09" })).text)
+  expect(await call("set_task_field", { id, name: "PR", value: "y" })).toEqual({ isError: true, text: 'field "PR" is not editable' })
+  const set = JSON.parse((await call("set_task_field", { id, name: "Due", type: "date", value: "2026-10-09" })).text)
   expect(set.fields.map((f: { name: string }) => f.name)).toEqual(["PR", "Due"])
-  const removed = JSON.parse((await call("remove_task_field", { id: 1, name: "PR" })).text)
+  const removed = JSON.parse((await call("remove_task_field", { id, name: "PR" })).text)
   expect(removed.fields).toEqual([{ type: "date", name: "Due", value: "2026-10-09", editable: true, visibleOnLists: false }])
 })
 
 test("templates", async () => {
   const fields = [{ type: "text", name: "Notes", value: "from template" }]
   const added = JSON.parse((await call("add_template", { name: "Walk", title: "Walk corgi", fields })).text)
-  expect(added).toMatchObject({ id: 1, name: "Walk", title: "Walk corgi", description: "" })
+  expect(added).toMatchObject({ name: "Walk", title: "Walk corgi", description: "" })
   await call("update_template", { template: "Walk", description: "Around the block" })
-  await call("set_template_field", { template: 1, name: "Route", type: "link" })
+  await call("set_template_field", { template: added.id, name: "Route", type: "link" })
   expect(JSON.parse((await call("list_templates")).text).map((t: { name: string }) => t.name)).toEqual(["Walk"])
-  expect(JSON.parse((await call("get_template", { template: 1 })).text).fields).toHaveLength(2)
+  expect(JSON.parse((await call("get_template", { template: added.id })).text).fields).toHaveLength(2)
 
   const task = JSON.parse((await call("add_task", { template: "Walk", title: "Evening walk" })).text)
   expect(task).toMatchObject({ title: "Evening walk", description: "Around the block" })
@@ -112,4 +114,16 @@ test("templates", async () => {
   await call("remove_template_field", { template: "Walk", name: "Route" })
   await call("delete_template", { template: "Walk" })
   expect(await call("get_template", { template: "Walk" })).toEqual({ isError: true, text: 'template "Walk" not found' })
+})
+
+test("subtasks", async () => {
+  const parent = JSON.parse((await call("add_task", { title: "Groom", description: "All of it" })).text)
+  const child = JSON.parse((await call("add_task", { title: "Brush", description: "Coat", parentId: parent.id })).text)
+  expect(child.parentId).toBe(parent.id)
+  expect(await call("delete_task", { id: parent.id })).toEqual({
+    isError: true,
+    text: `task ${parent.id} has 1 subtask; delete or move them first`,
+  })
+  expect(JSON.parse((await call("update_task", { id: child.id, parentId: null })).text).parentId).toBeUndefined()
+  expect((await call("delete_task", { id: parent.id })).isError).toBe(false)
 })

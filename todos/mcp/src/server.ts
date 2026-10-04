@@ -3,12 +3,16 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { FIELD_TYPES, StatusSchema, TodoError, TodoStore, VIEWS } from "@corgiops/todos-core"
 import { z } from "zod"
 
-const id = z.number().int().positive().describe("Task id")
+const id = z.string().describe("Task id (uuid)")
 const title = z.string().describe("Short task title (non-empty)")
 const description = z.string().describe("What the task involves (non-empty)")
 const status = StatusSchema.describe("Task status")
 const targetDate = z.string().describe("Day the task is planned for, YYYY-MM-DD (local). Defaults to today.")
 const completionDate = z.string().describe("Day the task was completed, YYYY-MM-DD. Only valid when status is done.")
+const parentId = z
+  .string()
+  .nullable()
+  .describe("Id of the parent task, making this a subtask; null for none. Must exist and not create a cycle.")
 const fieldName = z.string().describe("Field name, unique within the task")
 const fieldOptions = {
   type: z
@@ -26,9 +30,7 @@ const optionalFieldOptions = {
   textbox: fieldOptions.textbox.optional(),
 }
 const field = z.object({ name: fieldName, type: fieldOptions.type, ...optionalFieldOptions })
-const template = z
-  .union([z.number().int().positive(), z.string()])
-  .describe("Template id, or its exact name")
+const template = z.string().describe("Template id (uuid), or its exact name")
 const templateName = z.string().describe("Template name (non-empty, unique)")
 const templateTitle = z.string().describe('Title given to tasks made from the template; "" leaves the task\'s own')
 const templateDescription = z.string().describe('Description given to tasks made from the template; "" leaves the task\'s own')
@@ -78,6 +80,7 @@ export function createServer(store: TodoStore = new TodoStore()): McpServer {
         status: status.optional(),
         targetDate: targetDate.optional(),
         completionDate: completionDate.optional(),
+        parentId: parentId.optional(),
         fields: z.array(field).optional().describe("Custom fields, in display order"),
       },
     },
@@ -101,6 +104,7 @@ export function createServer(store: TodoStore = new TodoStore()): McpServer {
         status: status.optional(),
         targetDate: targetDate.optional(),
         completionDate: completionDate.optional(),
+        parentId: parentId.optional(),
       },
       annotations: { idempotentHint: true },
     },
@@ -171,7 +175,7 @@ export function createServer(store: TodoStore = new TodoStore()): McpServer {
   server.registerTool(
     "delete_task",
     {
-      description: "Permanently delete a task. Returns the deleted task.",
+      description: "Permanently delete a task. Refused while other tasks have it as parent. Returns the deleted task.",
       inputSchema: { id },
       annotations: { destructiveHint: true },
     },

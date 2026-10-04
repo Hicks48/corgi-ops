@@ -16,5 +16,8 @@ Generic monorepo rules are in the root `CLAUDE.md`. Paths below are relative to 
 - Storage: `TodoStore` (`core/src/store.ts`) owns `todos.json` and `templates.json`, each a `JsonFile`
   (`core/src/jsonFile.ts`) with its own `schemaVersion` and lock. Task format migrations: `migrate()` in
   `core/src/schema.ts`.
+- Ids: tasks and templates use uuids (`newId`, `shortId` in `core/src/schema.ts`). Subtasks via optional
+  `parentId`; rules (exists, no cycles, `null` clears) in `applyParent` in `store.ts`; `remove` refuses a
+  task with subtasks. Pre-uuid files (todos v<4, templates v<2) are not migrated.
 - Dates helpers: `core/src/dates.ts`. User-facing errors: `TodoError` (`core/src/errors.ts`).
 - Tests: `new TodoStore({ dir, now })` with a temp dir and injected clock.

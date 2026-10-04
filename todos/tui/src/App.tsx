@@ -61,7 +61,7 @@ export function App({ store, system, onExit }: AppProps) {
 
   /** The view's quick action. The task leaves the view, so the cursor lands on its neighbour. */
   const runAction = async (task: Task) => {
-    const actions: Record<View, (id: number) => Promise<Task>> = {
+    const actions: Record<View, (id: string) => Promise<Task>> = {
       current: (id) => store.postpone(id),
       upcoming: (id) => store.pullToToday(id),
       completed: (id) => store.reopen(id),
@@ -172,12 +172,14 @@ export function App({ store, system, onExit }: AppProps) {
       <TaskDetails
         key={mode.task?.id ?? "new"}
         task={mode.task}
+        parent={tasks.find((t) => t.id === mode.task?.parentId)}
         templates={templates}
         today={today}
         system={system}
         onSave={save}
         onDelete={remove}
         onClose={() => setMode({ kind: "list" })}
+        onOpenParent={(parent) => setMode({ kind: "details", task: parent })}
       />
     )
   }

@@ -26,20 +26,18 @@ const inProgressFirst: Compare = (a, b) => Number(b.status === "in-progress") - 
 const targetAsc: Compare = (a, b) => a.targetDate.localeCompare(b.targetDate)
 const completionDesc: Compare = (a, b) => (b.completionDate ?? "").localeCompare(a.completionDate ?? "")
 const updatedDesc: Compare = (a, b) => b.updatedAt.localeCompare(a.updatedAt)
-const idAsc: Compare = (a, b) => a.id - b.id
-
-/** Tasks belonging to `view` on `today`, in display order. */
+/** Tasks belonging to `view` on `today`, in display order. Ties keep file (creation) order. */
 export function tasksInView(tasks: Task[], view: View, today: LocalDate): Task[] {
   switch (view) {
     case "current":
       return tasks
         .filter((t) => t.status !== "done" && t.targetDate <= today)
-        .sort(by(inProgressFirst, targetAsc, idAsc))
+        .sort(by(inProgressFirst, targetAsc))
     case "upcoming":
       return tasks
         .filter((t) => t.status !== "done" && t.targetDate > today)
-        .sort(by(targetAsc, inProgressFirst, idAsc))
+        .sort(by(targetAsc, inProgressFirst))
     case "completed":
-      return tasks.filter((t) => t.status === "done").sort(by(completionDesc, updatedDesc, idAsc))
+      return tasks.filter((t) => t.status === "done").sort(by(completionDesc, updatedDesc))
   }
 }

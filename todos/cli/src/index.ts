@@ -22,15 +22,16 @@ Usage:
   corgi-todos list [--view <view>] [--status <status>]
   corgi-todos show <id>
   corgi-todos add --title <text> --description <text> [--status <status>] [--target-date <date>]
+                  [--parent <id>]
   corgi-todos add --template <template> [--title <text>] [--description <text>] [...]
                                 Start from a template; given options win over it
   corgi-todos update <id> [--title <text>] [--description <text>] [--status <status>]
-                          [--target-date <date>] [--completion-date <date>]
+                          [--target-date <date>] [--completion-date <date>] [--parent <id>]
   corgi-todos status <id> <status>
   corgi-todos postpone <id>     Set target date to tomorrow
   corgi-todos pull <id>         Set target date to today
   corgi-todos reopen <id>       Mark a done task in-progress for today
-  corgi-todos rm <id>
+  corgi-todos rm <id>             Refused while the task has subtasks
   corgi-todos field set <id> --name <name> [--type <type>] [--value <text>] [--editable true|false]
                         [--visible-on-lists true|false] [--textbox true|false]
                                 Add a custom field, or change the one with that name
@@ -52,14 +53,14 @@ Views:    ${VIEWS.join(", ")}
 Statuses: ${STATUSES.join(", ")}
 Fields:   ${FIELD_TYPES.join(", ")}; new fields default to text, editable, hidden on lists, textbox
 Dates:    YYYY-MM-DD; target date defaults to today, completion date is set when a task is done
+Ids:      tasks and templates have uuid ids; --parent <id> makes a subtask, --parent "" clears it
 Templates are referred to by id or name. Empty template values leave the task's value alone.`
 
 class UsageError extends Error {}
 
-const parseId = (raw: string | undefined): number => {
-  const id = Number(raw)
-  if (!raw || !Number.isInteger(id) || id <= 0) throw new UsageError(`invalid task id: ${raw ?? "(missing)"}`)
-  return id
+const parseId = (raw: string | undefined): string => {
+  if (!raw?.trim()) throw new UsageError("missing task id")
+  return raw.trim()
 }
 
 const parseStatus = (raw: string | undefined): Status => {
@@ -91,19 +92,20 @@ const parseBool = (flag: string, raw: string | undefined): boolean | undefined =
 
 const parseTemplateRef = (raw: string | undefined): TemplateRef => {
   if (!raw?.trim()) throw new UsageError("missing template id or name")
-  return /^\d+$/.test(raw) ? Number(raw) : raw
+  return raw
 }
 
 const formatField = (f: Task["fields"][number]) => `${f.name} (${f.type}${f.editable ? "" : ", locked"}): ${f.value}`
 
 const formatLine = (t: Task) =>
-  `${String(t.id).padStart(4)}  ${STATUS_LABELS[t.status].padEnd(11)}  ${t.completionDate ?? t.targetDate}  ${t.title}`
+  `${t.id}  ${STATUS_LABELS[t.status].padEnd(11)}  ${t.completionDate ?? t.targetDate}  ${t.title}`
 
 const formatDetail = (t: Task) =>
   [
-    `#${t.id} ${t.title}`,
+    `${t.id} ${t.title}`,
     `Status:  ${STATUS_LABELS[t.status]}`,
     `Target:  ${t.targetDate}`,
+    ...(t.parentId ? [`Parent:  ${t.parentId}`] : []),
     ...(t.completionDate ? [`Done:    ${t.completionDate}`] : []),
     ...t.fields.map(formatField),
     `Created: ${t.createdAt}`,
@@ -112,11 +114,11 @@ const formatDetail = (t: Task) =>
     t.description,
   ].join("\n")
 
-const formatTemplateLine = (t: Template) => `${String(t.id).padStart(4)}  ${t.name}${t.title ? `  (${t.title})` : ""}`
+const formatTemplateLine = (t: Template) => `${t.id}  ${t.name}${t.title ? `  (${t.title})` : ""}`
 
 const formatTemplate = (t: Template) =>
   [
-    `#${t.id} ${t.name}`,
+    `${t.id} ${t.name}`,
     `Title:   ${t.title}`,
     ...t.fields.map(formatField),
     `Created: ${t.createdAt}`,
@@ -143,6 +145,7 @@ async function main(argv: string[]): Promise<void> {
       "visible-on-lists": { type: "string" },
       textbox: { type: "string" },
       template: { type: "string" },
+      parent: { type: "string" },
       json: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
@@ -158,9 +161,11 @@ async function main(argv: string[]): Promise<void> {
   const view = parseView(values.view)
   const targetDate = values["target-date"]
   const completionDate = values["completion-date"]
+  // "" clears the parent.
+  const parentId = values.parent === undefined ? undefined : values.parent.trim() || null
   const print = (result: Task | Task[] | Template | Template[], text: string) => console.log(values.json ? JSON.stringify(result, null, 2) : text)
-  const printTask = (task: Task, verb: string) => print(task, `${verb} #${task.id} ${task.title}`)
-  const printTemplate = (template: Template, verb: string) => print(template, `${verb} template #${template.id} ${template.name}`)
+  const printTask = (task: Task, verb: string) => print(task, `${verb} ${task.id} ${task.title}`)
+  const printTemplate = (template: Template, verb: string) => print(template, `${verb} template ${template.id} ${template.name}`)
   const fieldPatch = (): FieldPatch => {
     if (values.name === undefined) throw new UsageError("field set requires --name")
     return {
@@ -239,19 +244,19 @@ async function main(argv: string[]): Promise<void> {
     }
     case "add": {
       if (values.template !== undefined) {
-        const input = { title: values.title, description: values.description, status, targetDate, completionDate }
+        const input = { title: values.title, description: values.description, status, targetDate, completionDate, parentId }
         printTask(await store.addFromTemplate(parseTemplateRef(values.template), input), "Added")
         return
       }
       if (values.title === undefined || values.description === undefined) {
         throw new UsageError("add requires --title and --description")
       }
-      const input = { title: values.title, description: values.description, status, targetDate, completionDate }
+      const input = { title: values.title, description: values.description, status, targetDate, completionDate, parentId }
       printTask(await store.add(input), "Added")
       return
     }
     case "update": {
-      const patch = { title: values.title, description: values.description, status, targetDate, completionDate }
+      const patch = { title: values.title, description: values.description, status, targetDate, completionDate, parentId }
       if (Object.values(patch).every((v) => v === undefined)) {
         throw new UsageError("update requires at least one field option")
       }
@@ -260,17 +265,17 @@ async function main(argv: string[]): Promise<void> {
     }
     case "status": {
       const task = await store.setStatus(parseId(args[0]), parseStatus(args[1]))
-      print(task, `#${task.id} -> ${STATUS_LABELS[task.status]}`)
+      print(task, `${task.id} -> ${STATUS_LABELS[task.status]}`)
       return
     }
     case "postpone": {
       const task = await store.postpone(parseId(args[0]))
-      print(task, `#${task.id} target -> ${task.targetDate}`)
+      print(task, `${task.id} target -> ${task.targetDate}`)
       return
     }
     case "pull": {
       const task = await store.pullToToday(parseId(args[0]))
-      print(task, `#${task.id} target -> ${task.targetDate}`)
+      print(task, `${task.id} target -> ${task.targetDate}`)
       return
     }
     case "reopen": {
@@ -288,12 +293,12 @@ async function main(argv: string[]): Promise<void> {
       if (action === "set") {
         const patch = fieldPatch()
         const task = await store.setField(id, patch)
-        print(task, `#${task.id} field "${patch.name.trim()}" set`)
+        print(task, `${task.id} field "${patch.name.trim()}" set`)
         return
       }
       if (action === "rm") {
         if (name === undefined) throw new UsageError("field rm requires a field name")
-        print(await store.removeField(id, name), `#${id} field "${name}" removed`)
+        print(await store.removeField(id, name), `${id} field "${name}" removed`)
         return
       }
       throw new UsageError(`unknown field action: ${action ?? "(missing)"} (expected set, rm)`)

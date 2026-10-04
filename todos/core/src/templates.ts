@@ -1,7 +1,8 @@
 import { z } from "zod"
 import { FieldListSchema, type CustomField } from "./fields.ts"
+import { IdSchema } from "./schema.ts"
 
-export const TEMPLATE_SCHEMA_VERSION = 1
+export const TEMPLATE_SCHEMA_VERSION = 2
 
 const name = z.string().trim().min(1, "template name is required")
 /** Empty title / description leave the task's own value alone. */
@@ -9,7 +10,7 @@ const title = z.string().trim()
 const description = z.string()
 
 export const TemplateSchema = z.object({
-  id: z.number().int().positive(),
+  id: IdSchema,
   /** Unique label shown in lists and the template picker. */
   name,
   title,
@@ -34,7 +35,6 @@ export type TemplatePatch = z.input<typeof TemplatePatchSchema>
 
 export const TemplateFileSchema = z.object({
   schemaVersion: z.literal(TEMPLATE_SCHEMA_VERSION),
-  nextId: z.number().int().positive(),
   templates: z.array(TemplateSchema).superRefine((templates, ctx) => {
     const seen = new Set<string>()
     for (const { name } of templates) {
@@ -45,7 +45,7 @@ export const TemplateFileSchema = z.object({
 })
 export type TemplateFile = z.infer<typeof TemplateFileSchema>
 
-export const emptyTemplateFile = (): TemplateFile => ({ schemaVersion: TEMPLATE_SCHEMA_VERSION, nextId: 1, templates: [] })
+export const emptyTemplateFile = (): TemplateFile => ({ schemaVersion: TEMPLATE_SCHEMA_VERSION, templates: [] })
 
 /** Replaces fields in `base` that share a name with one in `incoming`, and appends the rest. */
 export const upsertFields = (base: CustomField[], incoming: CustomField[]): CustomField[] => {

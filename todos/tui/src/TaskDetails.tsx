@@ -3,6 +3,7 @@ import { useRef, useState } from "react"
 import {
   applyTemplate,
   formatLocalDateTime,
+  shortId,
   STATUS_LABELS,
   STATUSES,
   type LocalDate,
@@ -17,13 +18,15 @@ import { DetailsForm, type FocusId, type FormApi, type FormValues } from "./Deta
 import type { System } from "./system.ts"
 import { STATUS_COLORS, theme } from "./theme.ts"
 
-export type TaskValues = Required<Pick<NewTask, "title" | "description" | "status" | "targetDate">> &
+export type TaskValues = Required<Pick<NewTask, "title" | "description" | "status" | "targetDate" | "parentId">> &
   Pick<NewTask, "completionDate"> &
   FormValues
 
 interface TaskDetailsProps {
   /** Task being viewed/edited; omit to create a new one. */
   task?: Task
+  /** The saved task's parent, if it has one. */
+  parent?: Task
   /** Offered in a picker when creating a task. */
   templates: Template[]
   today: LocalDate
@@ -32,17 +35,20 @@ interface TaskDetailsProps {
   onSave: (values: TaskValues) => Promise<void>
   onDelete: () => Promise<void>
   onClose: () => void
+  /** Leaves unsaved edits behind, like closing. */
+  onOpenParent: (parent: Task) => void
 }
 
 const PICKER_ROWS = 8
 
-export function TaskDetails({ task, templates, today, system, onSave, onDelete, onClose }: TaskDetailsProps) {
+export function TaskDetails({ task, parent, templates, today, system, onSave, onDelete, onClose, onOpenParent }: TaskDetailsProps) {
   const [status, setStatus] = useState<Status>(task?.status ?? "todo")
   const [picking, setPicking] = useState(false)
   const [pickIndex, setPickIndex] = useState(0)
   const [applied, setApplied] = useState<string | null>(null)
   const targetRef = useRef<InputRenderable>(null)
   const completionRef = useRef<InputRenderable>(null)
+  const parentRef = useRef<InputRenderable>(null)
 
   const canPick = !task && templates.length > 0
   const topIds: FocusId[] = [
@@ -50,6 +56,8 @@ export function TaskDetails({ task, templates, today, system, onSave, onDelete, 
     "status",
     ...(status === "done" ? ["completionDate"] : []),
     "targetDate",
+    ...(task ? ["id"] : []),
+    "parent",
   ]
 
   const save = (values: FormValues) =>
@@ -58,7 +66,16 @@ export function TaskDetails({ task, templates, today, system, onSave, onDelete, 
       status,
       targetDate: targetRef.current?.value.trim() ?? "",
       completionDate: status === "done" ? completionRef.current?.value.trim() : undefined,
+      parentId: parentRef.current?.value.trim() || null,
     })
+
+  const copyId = (api: FormApi) => {
+    if (!task) return
+    system.copy(task.id).then(
+      () => api.setNotice("Copied task id"),
+      (err: Error) => api.setError(err.message),
+    )
+  }
 
   const pick = (api: FormApi, template: Template) => {
     api.replace(applyTemplate(api.values(), template))
@@ -76,6 +93,8 @@ export function TaskDetails({ task, templates, today, system, onSave, onDelete, 
       return
     }
     if (api.focus === "template" && (key.name === "return" || key.name === "space")) return setPicking(true)
+    if (key.ctrl && key.name === "p" && parent) return onOpenParent(parent)
+    if (key.ctrl && key.name === "y" && api.focus === "id") return copyId(api)
     if (api.focus === "status" && (key.name === "left" || key.name === "right" || key.name === "space")) {
       setStatus(cycle(STATUSES, status, key.name === "left" ? -1 : 1))
     }
@@ -144,6 +163,61 @@ export function TaskDetails({ task, templates, today, system, onSave, onDelete, 
           <DateInput ref={targetRef} value={task?.targetDate ?? today} focused={api.focused("targetDate")} />
         </box>
       </box>
+      <box flexDirection="row" gap={1}>
+        {task ? (
+          <box
+            title=" Id "
+            border
+            borderColor={api.borderColor("id")}
+            flexDirection="row"
+            gap={1}
+            height={3}
+            width={21}
+            paddingLeft={1}
+            onMouseDown={() => api.setFocus("id")}
+          >
+            <text fg={theme.dim}>{shortId(task.id)}</text>
+            <box
+              onMouseDown={(event) => {
+                event.stopPropagation()
+                copyId(api)
+              }}
+            >
+              <text fg={api.focus === "id" ? theme.accent : theme.dim}>[ copy ]</text>
+            </box>
+          </box>
+        ) : null}
+        <box
+          title={parent ? ` Parent · ${parent.title} ` : " Parent "}
+          border
+          borderColor={api.borderColor("parent")}
+          flexDirection="row"
+          gap={1}
+          height={3}
+          flexGrow={1}
+          paddingLeft={1}
+          onMouseDown={() => api.setFocus("parent")}
+        >
+          <input
+            ref={parentRef}
+            value={task?.parentId ?? ""}
+            placeholder="Optional; id of the parent task"
+            focused={api.focused("parent")}
+            flexGrow={1}
+          />
+          {parent ? (
+            <box
+              flexShrink={0}
+              onMouseDown={(event) => {
+                event.stopPropagation()
+                onOpenParent(parent)
+              }}
+            >
+              <text fg={api.focus === "parent" ? theme.accent : theme.dim}>[ open ]</text>
+            </box>
+          ) : null}
+        </box>
+      </box>
       {picking ? (
         <box
           title=" Pick a template · ↑↓ enter esc "
@@ -167,7 +241,7 @@ export function TaskDetails({ task, templates, today, system, onSave, onDelete, 
 
   return (
     <DetailsForm
-      header={task ? `Task #${task.id}` : "New Task"}
+      header={task ? `Task ${shortId(task.id)}` : "New Task"}
       system={system}
       initial={{ title: task?.title ?? "", description: task?.description ?? "", fields: task?.fields ?? [] }}
       topIds={topIds}
@@ -178,9 +252,14 @@ export function TaskDetails({ task, templates, today, system, onSave, onDelete, 
       isLocked={(f) => !f.editable && task?.fields.some((saved) => saved.name === f.name) === true}
       textPlaceholder="Required"
       onSave={save}
-      onDelete={task ? { prompt: `Delete #${task.id} "${task.title}"`, run: onDelete } : undefined}
+      onDelete={task ? { prompt: `Delete "${task.title}"`, run: onDelete } : undefined}
       onClose={onClose}
-      hints={[...(canPick ? ["enter pick template"] : []), "←→ status"]}
+      hints={[
+        ...(canPick ? ["enter pick template"] : []),
+        "←→ status",
+        ...(task ? ["ctrl+y copy id (on Id)"] : []),
+        ...(parent ? ["ctrl+p open parent"] : []),
+      ]}
       meta={task ? `Created ${formatLocalDateTime(task.createdAt)} · Updated ${formatLocalDateTime(task.updatedAt)}` : undefined}
     />
   )
