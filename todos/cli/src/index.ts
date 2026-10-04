@@ -12,6 +12,7 @@ import {
   type FieldPatch,
   type Task,
   type Template,
+  type TaskWithSubtasks,
   type TemplateRef,
   type View,
 } from "@corgiops/todos-core"
@@ -100,12 +101,13 @@ const formatField = (f: Task["fields"][number]) => `${f.name} (${f.type}${f.edit
 const formatLine = (t: Task) =>
   `${t.id}  ${STATUS_LABELS[t.status].padEnd(11)}  ${t.completionDate ?? t.targetDate}  ${t.title}`
 
-const formatDetail = (t: Task) =>
+const formatDetail = (t: TaskWithSubtasks) =>
   [
     `${t.id} ${t.title}`,
     `Status:  ${STATUS_LABELS[t.status]}`,
     `Target:  ${t.targetDate}`,
     ...(t.parentId ? [`Parent:  ${t.parentId}`] : []),
+    ...(t.subtaskIds.length ? [`Subtasks: ${t.subtaskIds.join(", ")}`] : []),
     ...(t.completionDate ? [`Done:    ${t.completionDate}`] : []),
     ...t.fields.map(formatField),
     `Created: ${t.createdAt}`,
@@ -238,7 +240,7 @@ async function main(argv: string[]): Promise<void> {
       return
     }
     case "show": {
-      const task = await store.get(parseId(args[0]))
+      const task = await store.getWithSubtasks(parseId(args[0]))
       print(task, formatDetail(task))
       return
     }

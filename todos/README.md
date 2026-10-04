@@ -54,6 +54,7 @@ Task details: `tab` / `shift+tab` or a click move between fields, `←` `→` ch
 `esc` back without saving, `ctrl+d` delete (asks to confirm). Created/updated times are shown read-only.
 The `Id` box shows the short id; `ctrl+y` on it (or `[ copy ]`) copies the full id. `Parent` takes a
 parent task's id (empty for none); `ctrl+p` or `[ open ]` opens the saved parent, discarding unsaved edits.
+A parent lists its subtasks below the description; `tab` to one and `enter` (or `[ open ]`) opens it.
 Custom fields: `ctrl+n` new field, and on a focused field `ctrl+y` copy, `ctrl+o` open (links),
 `ctrl+x` remove. Field changes are saved with `ctrl+s` like everything else.
 Date inputs only accept digits and format them as `YYYY-MM-DD` (incomplete or impossible dates show red).
@@ -85,7 +86,8 @@ bun run todos:cli add --template <id|name> [--title ...] [--description ...] [..
 bun run todos:cli template list|show|add|update|rm ...
 bun run todos:cli template field set|rm <id|name> ...
 ```
-Ids are the full uuids shown by `list`. `--parent ""` clears the parent.
+Ids are the full uuids shown by `list`. `--parent ""` clears the parent. `show` lists the ids of the
+task's subtasks (also in `--json`, as `subtaskIds`).
 `field set` adds the field or changes the one with that name; unspecified options keep their values.
 `add --template` starts from the template; options given on the command line win. Run with `--help` for
 the full template usage.
@@ -95,7 +97,7 @@ Tools: `list_tasks`, `get_task`, `add_task` (accepts `fields`), `update_task`, `
 `remove_task_field`, `set_task_status`, `postpone_task`, `pull_task_to_today`, `reopen_task`, `delete_task`,
 `list_templates`, `get_template`, `add_template`, `update_template`, `set_template_field`,
 `remove_template_field`, `delete_template`. `add_task` accepts `template` (id or name). `add_task` and
-`update_task` accept `parentId` (`null` clears it).
+`update_task` accept `parentId` (`null` clears it). `get_task` also returns `subtaskIds`.
 
 Register with Claude Code:
 

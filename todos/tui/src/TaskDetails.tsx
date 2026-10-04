@@ -14,9 +14,9 @@ import {
 } from "@corgiops/todos-core"
 import { cycle } from "./cycle.ts"
 import { DateInput } from "./DateInput.tsx"
-import { DetailsForm, type FocusId, type FormApi, type FormValues } from "./DetailsForm.tsx"
+import { boxId, DetailsForm, type FocusId, type FormApi, type FormValues } from "./DetailsForm.tsx"
 import type { System } from "./system.ts"
-import { STATUS_COLORS, theme } from "./theme.ts"
+import { STATUS_BADGES, STATUS_COLORS, theme } from "./theme.ts"
 
 export type TaskValues = Required<Pick<NewTask, "title" | "description" | "status" | "targetDate" | "parentId">> &
   Pick<NewTask, "completionDate"> &
@@ -27,6 +27,8 @@ interface TaskDetailsProps {
   task?: Task
   /** The saved task's parent, if it has one. */
   parent?: Task
+  /** The saved task's subtasks. */
+  subtasks: Task[]
   /** Offered in a picker when creating a task. */
   templates: Template[]
   today: LocalDate
@@ -35,13 +37,15 @@ interface TaskDetailsProps {
   onSave: (values: TaskValues) => Promise<void>
   onDelete: () => Promise<void>
   onClose: () => void
-  /** Leaves unsaved edits behind, like closing. */
-  onOpenParent: (parent: Task) => void
+  /** Opens a parent or subtask. Leaves unsaved edits behind, like closing. */
+  onOpenTask: (task: Task) => void
 }
+
+const subtaskId = (task: Task): FocusId => `subtask:${task.id}`
 
 const PICKER_ROWS = 8
 
-export function TaskDetails({ task, parent, templates, today, system, onSave, onDelete, onClose, onOpenParent }: TaskDetailsProps) {
+export function TaskDetails({ task, parent, subtasks, templates, today, system, onSave, onDelete, onClose, onOpenTask }: TaskDetailsProps) {
   const [status, setStatus] = useState<Status>(task?.status ?? "todo")
   const [picking, setPicking] = useState(false)
   const [pickIndex, setPickIndex] = useState(0)
@@ -93,7 +97,9 @@ export function TaskDetails({ task, parent, templates, today, system, onSave, on
       return
     }
     if (api.focus === "template" && (key.name === "return" || key.name === "space")) return setPicking(true)
-    if (key.ctrl && key.name === "p" && parent) return onOpenParent(parent)
+    if (key.ctrl && key.name === "p" && parent) return onOpenTask(parent)
+    const subtask = subtasks.find((t) => subtaskId(t) === api.focus)
+    if (subtask && key.name === "return") return onOpenTask(subtask)
     if (key.ctrl && key.name === "y" && api.focus === "id") return copyId(api)
     if (api.focus === "status" && (key.name === "left" || key.name === "right" || key.name === "space")) {
       setStatus(cycle(STATUSES, status, key.name === "left" ? -1 : 1))
@@ -210,7 +216,7 @@ export function TaskDetails({ task, parent, templates, today, system, onSave, on
               flexShrink={0}
               onMouseDown={(event) => {
                 event.stopPropagation()
-                onOpenParent(parent)
+                onOpenTask(parent)
               }}
             >
               <text fg={api.focus === "parent" ? theme.accent : theme.dim}>[ open ]</text>
@@ -239,6 +245,42 @@ export function TaskDetails({ task, parent, templates, today, system, onSave, on
     </box>
   )
 
+  const renderBottom = (api: FormApi) =>
+    subtasks.length ? (
+      <box title=" Subtasks " border borderColor={theme.border} flexDirection="column" flexShrink={0} paddingLeft={1} paddingRight={1}>
+        {subtasks.map((t) => {
+          const id = subtaskId(t)
+          const active = api.focused(id)
+          return (
+            <box
+              key={t.id}
+              id={boxId(id)}
+              flexDirection="row"
+              gap={1}
+              backgroundColor={active ? theme.accent : undefined}
+              onMouseDown={() => api.setFocus(id)}
+            >
+              <text fg={active ? theme.onAccent : STATUS_COLORS[t.status]} flexShrink={0}>
+                {STATUS_BADGES[t.status]}
+              </text>
+              <text fg={active ? theme.onAccent : theme.text} wrapMode="none" truncate flexGrow={1} flexShrink={1}>
+                {t.title}
+              </text>
+              <box
+                flexShrink={0}
+                onMouseDown={(event) => {
+                  event.stopPropagation()
+                  onOpenTask(t)
+                }}
+              >
+                <text fg={active ? theme.onAccent : theme.dim}>[ open ]</text>
+              </box>
+            </box>
+          )
+        })}
+      </box>
+    ) : null
+
   return (
     <DetailsForm
       header={task ? `Task ${shortId(task.id)}` : "New Task"}
@@ -246,6 +288,8 @@ export function TaskDetails({ task, parent, templates, today, system, onSave, on
       initial={{ title: task?.title ?? "", description: task?.description ?? "", fields: task?.fields ?? [] }}
       topIds={topIds}
       renderTop={renderTop}
+      bottomIds={subtasks.map(subtaskId)}
+      renderBottom={renderBottom}
       onKey={onKey}
       suspended={picking}
       // Locked once saved; a new non-editable field can still be filled in before the first save.
@@ -259,6 +303,7 @@ export function TaskDetails({ task, parent, templates, today, system, onSave, on
         "←→ status",
         ...(task ? ["ctrl+y copy id (on Id)"] : []),
         ...(parent ? ["ctrl+p open parent"] : []),
+        ...(subtasks.length ? ["enter open subtask"] : []),
       ]}
       meta={task ? `Created ${formatLocalDateTime(task.createdAt)} · Updated ${formatLocalDateTime(task.updatedAt)}` : undefined}
     />

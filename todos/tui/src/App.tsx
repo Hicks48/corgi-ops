@@ -173,13 +173,14 @@ export function App({ store, system, onExit }: AppProps) {
         key={mode.task?.id ?? "new"}
         task={mode.task}
         parent={tasks.find((t) => t.id === mode.task?.parentId)}
+        subtasks={mode.task ? tasks.filter((t) => t.parentId === mode.task!.id) : []}
         templates={templates}
         today={today}
         system={system}
         onSave={save}
         onDelete={remove}
         onClose={() => setMode({ kind: "list" })}
-        onOpenParent={(parent) => setMode({ kind: "details", task: parent })}
+        onOpenTask={(task) => setMode({ kind: "details", task })}
       />
     )
   }

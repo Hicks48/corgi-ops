@@ -120,6 +120,7 @@ test("subtasks", async () => {
   const parent = JSON.parse((await call("add_task", { title: "Groom", description: "All of it" })).text)
   const child = JSON.parse((await call("add_task", { title: "Brush", description: "Coat", parentId: parent.id })).text)
   expect(child.parentId).toBe(parent.id)
+  expect(JSON.parse((await call("get_task", { id: parent.id })).text).subtaskIds).toEqual([child.id])
   expect(await call("delete_task", { id: parent.id })).toEqual({
     isError: true,
     text: `task ${parent.id} has 1 subtask; delete or move them first`,

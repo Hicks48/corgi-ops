@@ -56,6 +56,9 @@ const defined = <T extends object>(obj: T): Partial<T> =>
 /** A template by id, or by name. */
 export type TemplateRef = string
 
+/** A task plus the ids of its direct subtasks, in creation order. */
+export type TaskWithSubtasks = Task & { subtaskIds: string[] }
+
 export interface TaskFilter {
   status?: Status
   /** Restricts to a list view and returns tasks in that view's order. */
@@ -98,6 +101,12 @@ export class TodoStore {
 
   async get(id: string): Promise<Task> {
     return find(await this.todos.read(), id)
+  }
+
+  async getWithSubtasks(id: string): Promise<TaskWithSubtasks> {
+    const data = await this.todos.read()
+    const subtaskIds = data.tasks.filter((t) => t.parentId === id).map((t) => t.id)
+    return { ...find(data, id), subtaskIds }
   }
 
   async add(input: NewTask): Promise<Task> {

@@ -162,6 +162,15 @@ describe("subtasks", () => {
     expect((await store.add({ title: "D", description: "d", parentId: null })).parentId).toBeUndefined()
   })
 
+  test("getWithSubtasks lists direct subtask ids in creation order", async () => {
+    const parent = await store.add({ title: "P", description: "p" })
+    const a = await store.add({ title: "A", description: "a", parentId: parent.id })
+    const b = await store.add({ title: "B", description: "b", parentId: parent.id })
+    await store.add({ title: "Grandchild", description: "g", parentId: a.id })
+    expect(await store.getWithSubtasks(parent.id)).toMatchObject({ title: "P", subtaskIds: [a.id, b.id] })
+    expect((await store.getWithSubtasks(b.id)).subtaskIds).toEqual([])
+  })
+
   test("rejects unknown parents and cycles", async () => {
     const a = await store.add({ title: "A", description: "a" })
     const b = await store.add({ title: "B", description: "b", parentId: a.id })

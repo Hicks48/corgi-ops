@@ -64,8 +64,12 @@ export function createServer(store: TodoStore = new TodoStore()): McpServer {
 
   server.registerTool(
     "get_task",
-    { description: "Get one task by id.", inputSchema: { id }, annotations: { readOnlyHint: true } },
-    ({ id }) => run(() => store.get(id)),
+    {
+      description: "Get one task by id, with `subtaskIds`: ids of the tasks that have it as parent.",
+      inputSchema: { id },
+      annotations: { readOnlyHint: true },
+    },
+    ({ id }) => run(() => store.getWithSubtasks(id)),
   )
 
   server.registerTool(

@@ -17,7 +17,8 @@ export type FormValues = TemplateTarget
 export type FocusId = string
 
 const customId = (name: string): FocusId => `custom:${name}`
-const boxId = (focus: FocusId) => `details-${focus}`
+/** Element id of a focusable box, so the form can scroll it into view. */
+export const boxId = (focus: FocusId) => `details-${focus}`
 
 /** Tall enough to show the whole value without scrolling, within reason. */
 const textboxHeight = (value: string) => Math.min(10, Math.max(3, value.split("\n").length)) + 2
@@ -44,6 +45,10 @@ interface DetailsFormProps {
   /** Focus ids in the top row, in tab order before the title. */
   topIds: FocusId[]
   renderTop: (api: FormApi) => ReactNode
+  /** Focus ids below the description, in tab order. Their boxes need `id={boxId(id)}`. */
+  bottomIds?: FocusId[]
+  /** Rendered below the description, inside the scroll area. */
+  renderBottom?: (api: FormApi) => ReactNode
   /** Keys the form doesn't handle itself (incl. ctrl+y / ctrl+o off a custom field), and every key while `suspended`. */
   onKey?: (key: KeyEvent, api: FormApi) => void
   /** True while the parent (e.g. a dropdown) owns the keyboard. */
@@ -64,7 +69,7 @@ interface DetailsFormProps {
 
 /** Details / edit form with custom fields. Owns the keyboard unless `suspended`. */
 export function DetailsForm(props: DetailsFormProps) {
-  const { header, initial, topIds, renderTop, onKey, suspended = false, isLocked = () => false, textPlaceholder } = props
+  const { header, initial, topIds, renderTop, bottomIds = [], renderBottom, onKey, suspended = false, isLocked = () => false, textPlaceholder } = props
   const { system, onSave, onDelete, onClose, hints, meta } = props
   // Bumped by `replace` so the uncontrolled widgets remount with the new values.
   const [seed, setSeed] = useState({ ...initial, generation: 0 })
@@ -80,7 +85,7 @@ export function DetailsForm(props: DetailsFormProps) {
   const customRefs = useRef(new Map<string, TextareaRenderable>())
   const scrollRef = useRef<ScrollBoxRenderable>(null)
 
-  const order: FocusId[] = [...topIds, "title", ...customFields.map((f) => customId(f.name)), "description"]
+  const order: FocusId[] = [...topIds, "title", ...customFields.map((f) => customId(f.name)), "description", ...bottomIds]
 
   useEffect(() => {
     scrollRef.current?.scrollChildIntoView(boxId(focus))
@@ -293,6 +298,7 @@ export function DetailsForm(props: DetailsFormProps) {
             flexGrow={1}
           />
         </box>
+        {renderBottom?.(api)}
       </scrollbox>
 
       {meta ? (

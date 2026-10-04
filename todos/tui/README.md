@@ -53,12 +53,14 @@ The following information is displayed:
 * Description (not truncated, editable)
 * Id (short form, not editable, button to copy the full id)
 * Parent id (editable, optional; button to jump to the parent task, leaving unsaved edits behind)
+* Subtasks (only if any; status and title of each, with a button to jump to it)
 * Created timestamp (not editable)
 * Updated at timestamp (not editable)
 
 #### Subtasks
 A task can be made a subtask of another by filling in the parent task's id in the `Parent` field. The
-parent's title is shown on the field once saved.
+parent's title is shown on the field once saved. The parent's details view lists its subtasks after the
+description.
 
 #### Custom Fields
 It is possible to add custom fields to the tasks for having more structure than just title and description. A `type` of a custom field defines which properties and options there are available for the field in addition to its `value`. There are following types available in the app for custom fields:

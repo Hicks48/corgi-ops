@@ -569,7 +569,7 @@ test("a new task can start from a template", async () => {
   expect(ui.captureCharFrame()).not.toContain("Template")
 })
 
-test("sets a parent, copies the id and jumps to the parent", async () => {
+test("sets a parent, copies the id, jumps between parent and subtasks", async () => {
   const parent = await store.add({ title: "Groom corgi", description: "All of it" })
   const child = await store.add({ title: "Brush corgi", description: "Coat" })
   await mount()
@@ -597,6 +597,26 @@ test("sets a parent, copies the id and jumps to the parent", async () => {
   const frame = await see(`Task ${shortId(parent.id)}`)
   expect(frame).toContain("All of it")
   expect(frame).not.toContain("Parent ·")
+  expect(frame).toContain("Subtasks")
+  expect(frame).toContain("Brush corgi")
+
+  // title -> description -> subtask, enter opens it.
+  ui.mockInput.pressTab()
+  await settle()
+  ui.mockInput.pressTab()
+  await settle()
+  ui.mockInput.pressEnter()
+  await see(`Task ${shortId(child.id)}`)
+  ui.mockInput.pressKey("p", { ctrl: true })
+  await see(`Task ${shortId(parent.id)}`)
+
+  // Clicking the subtask's button opens it too.
+  const sub = locate("Brush corgi")
+  const row = ui.captureCharFrame().split("\n")[sub.y]!
+  await ui.mockMouse.click(row.indexOf("[ open ]") + 2, sub.y)
+  await see(`Task ${shortId(child.id)}`)
+  ui.mockInput.pressKey("p", { ctrl: true })
+  await see(`Task ${shortId(parent.id)}`)
 
   ui.mockInput.pressKey("d", { ctrl: true })
   await see("y to confirm")
