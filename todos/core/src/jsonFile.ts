@@ -6,6 +6,9 @@ import { TodoError } from "./errors.ts"
 const LOCK_STALE_MS = 10_000
 const LOCK_RETRY_MS = 25
 const LOCK_TIMEOUT_MS = 5_000
+// Task data is personal: owner-only access.
+const PRIVATE_DIR = 0o700
+const PRIVATE_FILE = 0o600
 
 const isCode = (err: unknown, code: string) => (err as NodeJS.ErrnoException)?.code === code
 
@@ -15,8 +18,6 @@ interface JsonFileOptions<T> {
   name: string
   schema: z.ZodType<T>
   empty: () => T
-  /** Upgrades older formats in memory before validation. */
-  migrate?: (raw: unknown) => unknown
 }
 
 /** One validated JSON file, written under a lockfile with atomic renames. */
@@ -26,19 +27,17 @@ export class JsonFile<T> {
   private readonly lock: string
   private readonly schema: z.ZodType<T>
   private readonly empty: () => T
-  private readonly migrate: (raw: unknown) => unknown
 
-  constructor({ dir, name, schema, empty, migrate = (raw) => raw }: JsonFileOptions<T>) {
+  constructor({ dir, name, schema, empty }: JsonFileOptions<T>) {
     this.dir = dir
     this.path = join(dir, name)
     this.lock = join(dir, `${basename(name, ".json")}.lock`)
     this.schema = schema
     this.empty = empty
-    this.migrate = migrate
   }
 
   async read(): Promise<T> {
-    await mkdir(this.dir, { recursive: true })
+    await mkdir(this.dir, { recursive: true, mode: PRIVATE_DIR })
     let raw: string
     try {
       raw = await readFile(this.path, "utf8")
@@ -47,7 +46,7 @@ export class JsonFile<T> {
       throw err
     }
     try {
-      return this.schema.parse(this.migrate(JSON.parse(raw)))
+      return this.schema.parse(JSON.parse(raw))
     } catch (err) {
       const detail = err instanceof z.ZodError ? z.prettifyError(err) : (err as Error).message
       throw new TodoError(`${this.path} is corrupt or has an unsupported format:\n${detail}`)
@@ -55,7 +54,7 @@ export class JsonFile<T> {
   }
 
   async mutate<R>(fn: (data: T) => R): Promise<R> {
-    await mkdir(this.dir, { recursive: true })
+    await mkdir(this.dir, { recursive: true, mode: PRIVATE_DIR })
     await this.acquireLock()
     try {
       const data = await this.read()
@@ -65,7 +64,7 @@ export class JsonFile<T> {
       if (!valid.success) throw new TodoError(`refusing to write invalid data:\n${z.prettifyError(valid.error)}`)
       // Atomic replace so readers never see a half-written file.
       const tmp = `${this.path}.${process.pid}.tmp`
-      await writeFile(tmp, JSON.stringify(data, null, 2) + "\n")
+      await writeFile(tmp, JSON.stringify(data, null, 2) + "\n", { mode: PRIVATE_FILE })
       await rename(tmp, this.path)
       return result
     } finally {
@@ -77,7 +76,7 @@ export class JsonFile<T> {
     const deadline = Date.now() + LOCK_TIMEOUT_MS
     for (;;) {
       try {
-        const handle = await open(this.lock, "wx")
+        const handle = await open(this.lock, "wx", PRIVATE_FILE)
         await handle.close()
         return
       } catch (err) {

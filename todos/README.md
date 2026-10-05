@@ -13,7 +13,7 @@ Data lives in
 than `~/.corgiops`.
 
 Custom fields have a `name` (unique per task), a `type` and a `value`:
-- `text` (free text; `textbox: false` for a single line), `link` (URL), `date` (`YYYY-MM-DD`),
+- `text` (free text; `textbox: false` for a single line), `link` (`http`/`https` URL only), `date` (`YYYY-MM-DD`),
   `timestamp` (ISO 8601). Values may be empty.
 - `editable` (default `true`): `false` locks the field once saved. It can still be removed.
 - `visibleOnLists` (default `false`): show it (one line) on the TUI list views.

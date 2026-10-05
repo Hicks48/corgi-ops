@@ -85,20 +85,3 @@ export const TodoFileSchema = z.object({
 export type TodoFile = z.infer<typeof TodoFileSchema>
 
 export const emptyTodoFile = (): TodoFile => ({ schemaVersion: SCHEMA_VERSION, tasks: [] })
-
-type RawFile = { schemaVersion?: number; tasks?: Record<string, unknown>[] }
-
-// Pre-v4 files (numeric ids) are not migrated: the app was not in use yet.
-const STEPS: Record<number, (tasks: Record<string, unknown>[]) => Record<string, unknown>[]> = {
-  4: (tasks) => tasks.map((task) => ({ ...task, comments: [] })),
-}
-
-/** Upgrades older file formats in memory; the upgraded form is persisted on the next write. */
-export const migrate = (raw: unknown): unknown => {
-  let file = raw as RawFile
-  for (;;) {
-    const step = file?.schemaVersion === undefined ? undefined : STEPS[file.schemaVersion]
-    if (!step || !Array.isArray(file.tasks)) return file
-    file = { ...file, schemaVersion: file.schemaVersion! + 1, tasks: step(file.tasks) }
-  }
-}

@@ -13,6 +13,10 @@ const options = {
 
 const orEmpty = (schema: z.ZodType<string>) => z.union([z.literal(""), schema])
 
+/** Links are opened with the OS handler, which would also launch files and apps; so http(s) only. */
+export const isWebUrl = (value: string): boolean =>
+  URL.canParse(value) && ["http:", "https:"].includes(new URL(value).protocol)
+
 export const CustomFieldSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("text"),
@@ -21,7 +25,15 @@ export const CustomFieldSchema = z.discriminatedUnion("type", [
     textbox: z.boolean().default(true),
     value: z.string().default(""),
   }),
-  z.object({ type: z.literal("link"), ...options, value: z.string().trim().default("") }),
+  z.object({
+    type: z.literal("link"),
+    ...options,
+    value: z
+      .string()
+      .trim()
+      .refine((v) => v === "" || isWebUrl(v), "link fields must be http(s) URLs")
+      .default(""),
+  }),
   z.object({
     type: z.literal("date"),
     ...options,

@@ -16,6 +16,7 @@ import {
   type TemplateRef,
   type View,
 } from "@corgiops/todos-core"
+import { terminalSafe, terminalSafeJson } from "./terminal.ts"
 
 const USAGE = `corgi-todos - manage todos in ~/.corgiops/todos
 
@@ -175,7 +176,7 @@ async function main(argv: string[]): Promise<void> {
   const completionDate = values["completion-date"]
   // "" clears the parent.
   const parentId = values.parent === undefined ? undefined : values.parent.trim() || null
-  const print = (result: Task | Task[] | Template | Template[], text: string) => console.log(values.json ? JSON.stringify(result, null, 2) : text)
+  const print = (result: Task | Task[] | Template | Template[], text: string) => console.log(values.json ? terminalSafeJson(result) : terminalSafe(text))
   const printTask = (task: Task, verb: string) => print(task, `${verb} ${task.id} ${task.title}`)
   const printTemplate = (template: Template, verb: string) => print(template, `${verb} template ${template.id} ${template.name}`)
   const fieldPatch = (): FieldPatch => {
@@ -353,7 +354,7 @@ try {
   // parseArgs throws TypeError with a code for bad flags.
   const isUsage = err instanceof UsageError || (err as { code?: string }).code?.startsWith("ERR_PARSE_ARGS")
   if (!isUsage && !(err instanceof TodoError)) throw err
-  console.error(`error: ${(err as Error).message}`)
+  console.error(`error: ${terminalSafe((err as Error).message)}`)
   if (isUsage) console.error(`\n${USAGE}`)
   process.exit(isUsage ? 2 : 1)
 }

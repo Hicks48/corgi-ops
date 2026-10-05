@@ -15,7 +15,6 @@ import { JsonFile } from "./jsonFile.ts"
 import { todosDir } from "./paths.ts"
 import {
   emptyTodoFile,
-  migrate,
   newId,
   NewTaskSchema,
   CommentInputSchema,
@@ -84,7 +83,7 @@ export class TodoStore {
 
   constructor({ dir = todosDir(), now = () => new Date() }: TodoStoreOptions = {}) {
     this.dir = dir
-    this.todos = new JsonFile({ dir, name: FILE_NAME, schema: TodoFileSchema, empty: emptyTodoFile, migrate })
+    this.todos = new JsonFile({ dir, name: FILE_NAME, schema: TodoFileSchema, empty: emptyTodoFile })
     this.templates = new JsonFile({ dir, name: TEMPLATES_FILE_NAME, schema: TemplateFileSchema, empty: emptyTemplateFile })
     this.file = this.todos.path
     this.templatesFile = this.templates.path
@@ -308,7 +307,7 @@ export class TodoStore {
 
   /** Calls `onChange` whenever todos.json or templates.json changes on disk (any process). Returns an unsubscribe fn. */
   async watch(onChange: () => void): Promise<() => void> {
-    await mkdir(this.dir, { recursive: true })
+    await mkdir(this.dir, { recursive: true, mode: 0o700 })
     let timer: ReturnType<typeof setTimeout> | undefined
     // Watch the dir, not the files: writes replace them via rename.
     const watcher = fsWatch(this.dir, (_event, name) => {

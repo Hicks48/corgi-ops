@@ -93,7 +93,7 @@ test("custom fields", async () => {
   const id = added.id
   expect(added.fields).toEqual([{ type: "link", name: "PR", value: "https://example.com", editable: false, visibleOnLists: false }])
 
-  expect(await call("set_task_field", { id, name: "PR", value: "y" })).toEqual({ isError: true, text: 'field "PR" is not editable' })
+  expect(await call("set_task_field", { id, name: "PR", value: "https://y.example" })).toEqual({ isError: true, text: 'field "PR" is not editable' })
   const set = JSON.parse((await call("set_task_field", { id, name: "Due", type: "date", value: "2026-10-09" })).text)
   expect(set.fields.map((f: { name: string }) => f.name)).toEqual(["PR", "Due"])
   const removed = JSON.parse((await call("remove_task_field", { id, name: "PR" })).text)

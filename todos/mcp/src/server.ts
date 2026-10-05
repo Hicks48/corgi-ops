@@ -19,7 +19,7 @@ const fieldName = z.string().describe("Field name, unique within the task")
 const fieldOptions = {
   type: z
     .enum(FIELD_TYPES)
-    .describe("text = free text; link = URL; date = YYYY-MM-DD; timestamp = ISO 8601 date-time"),
+    .describe("text = free text; link = http(s) URL; date = YYYY-MM-DD; timestamp = ISO 8601 date-time"),
   value: z.string().describe('Field value; "" for empty'),
   editable: z.boolean().describe("false locks the field (no changes after it is saved). Default true."),
   visibleOnLists: z.boolean().describe("Show on the TUI list views. Default false."),

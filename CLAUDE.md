@@ -45,9 +45,10 @@ app's glob there, e.g. `"<app>/*"`, plus `<app>`, `<app>:cli`, `<app>:mcp` scrip
 
 ## Data
 - App data lives under `~/.corgiops/<app>/` (e.g. `~/.corgiops/todos/todos.json`), created on first use.
-  Root is overridable with `CORGIOPS_HOME`.
-- Files carry `schemaVersion`. When changing the format: bump it, add a migration step, and add a
-  migration test. Old files are upgraded on read, persisted on next write.
+  Root is overridable with `CORGIOPS_HOME`. Dirs are created `0700`, files written `0600` (owner only).
+- Files carry `schemaVersion`. Apps not yet in use (todos) change the format freely, without migrations.
+  Once an app is in use: bump it, add a migration step that upgrades old files on read (persisted on next
+  write), and add a migration test.
 - Writes take a lockfile, validate the whole file, then atomically rename into place (see
   `todos/core/src/jsonFile.ts`). TUI, CLI and agents (via MCP) may write concurrently.
 - Dates are local `YYYY-MM-DD` strings; timestamps are ISO strings.

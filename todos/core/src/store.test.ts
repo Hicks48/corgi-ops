@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { existsSync } from "node:fs"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { applyTemplate, TodoError, TodoStore, type Template } from "./index.ts"
@@ -142,18 +142,10 @@ describe("TodoStore", () => {
     expect(await titles("current")).toEqual(["doing-overdue", "todo-today", "soon"])
   })
 
-  test("migrates schema v4 files", async () => {
-    await store.list()
-    const at = new Date(2026, 9, 1, 9).toISOString()
-    const id = crypto.randomUUID()
-    const v4 = {
-      schemaVersion: 4,
-      tasks: [{ id, title: "A", description: "a", status: "todo", targetDate: "2026-10-01", fields: [], createdAt: at, updatedAt: at }],
-    }
-    await writeFile(store.file, JSON.stringify(v4))
-    expect(await store.list()).toMatchObject([{ id, comments: [] }])
-    await store.add({ title: "B", description: "b" })
-    expect(JSON.parse(await readFile(store.file, "utf8")).schemaVersion).toBe(5)
+  test("keeps data private to the owner", async () => {
+    await store.add({ title: "A", description: "a" })
+    expect((await stat(store.dir)).mode & 0o777).toBe(0o700)
+    expect((await stat(store.file)).mode & 0o777).toBe(0o600)
   })
 
   test("rejects pre-uuid files instead of overwriting them", async () => {
@@ -273,11 +265,21 @@ describe("custom fields", () => {
     ).rejects.toThrow("duplicate field name: X")
   })
 
+  test("links must be http(s) URLs", async () => {
+    const task = await store.add({ title: "A", description: "a" })
+    for (const value of ["file:///Applications/Calculator.app", "/tmp/evil.command", "javascript:alert(1)", "-a Terminal", "x"]) {
+      await expect(store.setField(task.id, { name: "L", type: "link", value })).rejects.toThrow("http(s) URLs")
+    }
+    expect((await store.setField(task.id, { name: "L", type: "link", value: "http://example.com/a?b" })).fields[0]!.value).toBe(
+      "http://example.com/a?b",
+    )
+  })
+
   test("setField adds or changes a field by name, keeping unspecified options", async () => {
     const task = await store.add({ title: "A", description: "a" })
-    await store.setField(task.id, { name: "PR", type: "link", value: "x", visibleOnLists: true })
-    const updated = await store.setField(task.id, { name: "PR", value: "y", type: undefined })
-    expect(updated.fields).toEqual([{ type: "link", name: "PR", editable: true, visibleOnLists: true, value: "y" }])
+    await store.setField(task.id, { name: "PR", type: "link", value: "https://x.example", visibleOnLists: true })
+    const updated = await store.setField(task.id, { name: "PR", value: "https://y.example", type: undefined })
+    expect(updated.fields).toEqual([{ type: "link", name: "PR", editable: true, visibleOnLists: true, value: "https://y.example" }])
     expect((await store.setField(task.id, { name: "Notes" })).fields[1]).toMatchObject({ type: "text", textbox: true })
 
     expect((await store.removeField(task.id, "PR")).fields.map((f) => f.name)).toEqual(["Notes"])
