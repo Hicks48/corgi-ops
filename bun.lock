@@ -9,6 +9,13 @@
         "typescript": "^5",
       },
     },
+    "todos/bin": {
+      "name": "@corgiops/todos-bin",
+      "version": "0.1.0",
+      "bin": {
+        "corgi-todos": "./src/index.ts",
+      },
+    },
     "todos/cli": {
       "name": "@corgiops/todos-cli",
       "version": "0.1.0",
@@ -56,6 +63,8 @@
     },
   },
   "packages": {
+    "@corgiops/todos-bin": ["@corgiops/todos-bin@workspace:todos/bin"],
+
     "@corgiops/todos-cli": ["@corgiops/todos-cli@workspace:todos/cli"],
 
     "@corgiops/todos-core": ["@corgiops/todos-core@workspace:todos/core"],

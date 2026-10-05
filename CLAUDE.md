@@ -18,6 +18,7 @@ bun run typecheck     # tsc --noEmit
 bun run <app>         # TUI, e.g. bun run todos
 bun run <app>:cli     # CLI
 bun run <app>:mcp     # MCP server (stdio)
+bun run <app>:release # standalone binaries into dist/, see RELEASING.md
 ```
 Run `bun test` and `bun run typecheck` before calling work done.
 
@@ -28,7 +29,7 @@ Each app has its own `README.md` (user-facing docs: keys, CLI usage, MCP tools) 
 
 ## Layout
 Each app is a directory of Bun workspace packages (`workspaces` in root `package.json`; add the new
-app's glob there, e.g. `"<app>/*"`, plus `<app>`, `<app>:cli`, `<app>:mcp` scripts):
+app's glob there, e.g. `"<app>/*"`, plus `<app>`, `<app>:cli`, `<app>:mcp`, `<app>:release` scripts):
 
 ```
 <app>/
@@ -36,7 +37,11 @@ app's glob there, e.g. `"<app>/*"`, plus `<app>`, `<app>:cli`, `<app>:mcp` scrip
   cli/    terminal commands (node:util parseArgs, no CLI framework)
   mcp/    MCP server; createServer(store) in server.ts, stdio entry in index.ts
   tui/    OpenTUI React app
+  bin/    release binary entry: no args = TUI, `mcp` = MCP server, else CLI; holds the app version
 ```
+- Release: `scripts/release.ts` (`bun build --compile`, one binary per platform; register new apps in
+  its `APPS`). Bundled binaries run without Bun or `node_modules`, so adapters must not read files from
+  the repo at runtime. Manual steps in `RELEASING.md`; CI not set up yet.
 - Adapters (`cli`, `mcp`, `tui`) stay thin: business rules live in `core` so all three behave the same.
   New operations go in core first, then get exposed in each adapter as appropriate.
 - Packages are named `@corgiops/<app>-<package>` and import each other by that name. Source is consumed

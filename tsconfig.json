@@ -15,5 +15,5 @@
     "noUncheckedIndexedAccess": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["todos/*/src"]
+  "include": ["todos/*/src", "scripts"]
 }

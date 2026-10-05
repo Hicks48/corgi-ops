@@ -7,6 +7,7 @@
     "todos": "bun todos/tui/src/index.tsx",
     "todos:cli": "bun todos/cli/src/index.ts",
     "todos:mcp": "bun todos/mcp/src/index.ts",
+    "todos:release": "bun scripts/release.ts todos",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },

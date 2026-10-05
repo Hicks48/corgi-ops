@@ -28,6 +28,10 @@ Views:
 - **Upcoming**: not done, target date after today. Earliest first.
 - **Completed**: done. Most recently completed first.
 
+The release binary `corgi-todos` bundles everything: run without arguments for the TUI, `corgi-todos mcp`
+for the MCP server, and any other arguments go to the CLI (`corgi-todos list` = `bun run todos:cli list`).
+`corgi-todos --version` prints the version.
+
 ## TUI
 ```bash
 bun run todos
@@ -109,4 +113,6 @@ Register with Claude Code:
 
 ```bash
 claude mcp add corgi-todos -- bun /absolute/path/to/corgi-ops/todos/mcp/src/index.ts
+# or, with the release binary:
+claude mcp add corgi-todos -- ~/.local/bin/corgi-todos mcp
 ```
