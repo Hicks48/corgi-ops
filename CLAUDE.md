@@ -1,26 +1,29 @@
 # CLAUDE.md
 
-Corgi Ops: monorepo of terminal (TUI) apps. Early development; expect structure and features to change.
+Corgi Ops: monorepo of small productivity apps. Early development; expect structure and features to change.
 Prefer reading the code over trusting this file when they disagree, and update this file when you change
 something it describes.
 
 ## Stack
-- Bun (>= 1.3) runtime, package manager and test runner. No Node/npm scripts.
-- TypeScript, strict. Root `tsconfig.json` covers all packages.
-- TUI: OpenTUI with React (`@opentui/react`, `@opentui/core`). Docs: `node_modules` README of `@opentui/react`.
-- Validation: zod v4. MCP: `@modelcontextprotocol/sdk` (stdio).
+- Python >= 3.9, **standard library only**: no pip packages, no build step. Keep it that way (security and
+  zero setup are the point); hand-roll small things instead (validation, MCP protocol, arg parsing).
+- Code must run on 3.9 (Apple's `/usr/bin/python3`): `from __future__ import annotations`, no `match`, no
+  `X | Y` outside annotations, no 3.10+ stdlib APIs (e.g. `nametofont(name, root)`).
+- UI: tkinter, needs Tk 8.6+. Apple's Python has Tk 8.5, which hangs on recent macOS; the UI refuses it and
+  UI tests skip. Dev machine: `~/.pyenv/versions/3.15.2/bin/python3` (Tk 9.1, from Homebrew `tcl-tk`).
+- MCP: hand-rolled stdio JSON-RPC (`todos/mcp/protocol.py`). No HTTP transport, no network listeners.
 
 ## Commands
 ```bash
-bun install
-bun test              # all tests
-bun run typecheck     # tsc --noEmit
-bun run <app>         # TUI, e.g. bun run todos
-bun run <app>:cli     # CLI
-bun run <app>:mcp     # MCP server (stdio)
-bun run <app>:release # standalone binaries into dist/, see RELEASING.md
+python3 scripts/test.py            # all tests (unittest discovery of test_*.py); -k <pattern> to filter
+python3 -m todos.ui                # UI
+python3 -m todos.cli <args>        # CLI
+python3 -m todos.mcp               # MCP server (stdio)
+python3 todos/bin [args]           # all-in-one entry (no args = UI, `mcp`, else CLI)
 ```
-Run `bun test` and `bun run typecheck` before calling work done.
+No release builds for now: apps are cloned and run from source.
+Run `python3 scripts/test.py` with a Tk 8.6+ Python before calling work done (otherwise UI tests skip), and
+with `/usr/bin/python3` (3.9) when touching core, CLI or MCP.
 
 ## Apps
 Each app has its own `README.md` (user-facing docs: keys, CLI usage, MCP tools) and `CLAUDE.md`
@@ -28,55 +31,56 @@ Each app has its own `README.md` (user-facing docs: keys, CLI usage, MCP tools) 
 - `todos/`: daily task tracker. See `todos/CLAUDE.md`.
 
 ## Layout
-Each app is a directory of Bun workspace packages (`workspaces` in root `package.json`; add the new
-app's glob there, e.g. `"<app>/*"`, plus `<app>`, `<app>:cli`, `<app>:mcp`, `<app>:release` scripts):
+Each app is a top-level Python package; layers are subpackages imported as `<app>.<layer>`
+(e.g. `from todos.core import TodoStore`). Run from the repo root (or via `<app>/bin`, which fixes the path).
 
 ```
 <app>/
   core/   domain model, validation, storage. Only package that touches disk.
-  cli/    terminal commands (node:util parseArgs, no CLI framework)
-  mcp/    MCP server; createServer(store) in server.ts, stdio entry in index.ts
-  tui/    OpenTUI React app
-  bin/    release binary entry: no args = TUI, `mcp` = MCP server, else CLI; holds the app version
+  cli/    terminal commands (own small arg parser in args.py, no argparse)
+  mcp/    MCP server; create_server(store) in server.py, generic protocol in protocol.py
+  ui/     tkinter desktop app
+  bin/    single entry: no args = UI, `mcp` = MCP server, else CLI; holds VERSION
 ```
-- Release: `scripts/release.ts` (`bun build --compile`, one binary per platform; register new apps in
-  its `APPS`). Bundled binaries run without Bun or `node_modules`, so adapters must not read files from
-  the repo at runtime. Manual steps in `RELEASING.md`; CI not set up yet.
-- Adapters (`cli`, `mcp`, `tui`) stay thin: business rules live in `core` so all three behave the same.
+- Tests live in a `test/` package inside each layer (e.g. `todos/ui/test/test_app.py`, with an empty
+  `__init__.py`). Use absolute imports (`from todos.core import ...`).
+- Adapters (`cli`, `mcp`, `ui`) stay thin: business rules live in `core` so all three behave the same.
   New operations go in core first, then get exposed in each adapter as appropriate.
-- Packages are named `@corgiops/<app>-<package>` and import each other by that name. Source is consumed
-  directly (`exports: ./src/index.ts`); no build step.
-- Code shared across apps goes in a new top-level `shared/` workspace once a second app needs it.
+- Code shared across apps goes in a new top-level `shared/` package once a second app needs it.
 
 ## Data
 - App data lives under `~/.corgiops/<app>/` (e.g. `~/.corgiops/todos/todos.json`), created on first use.
   Root is overridable with `CORGIOPS_HOME`. Dirs are created `0700`, files written `0600` (owner only).
-- Files carry `schemaVersion`. Apps not yet in use (todos) change the format freely, without migrations.
-  Once an app is in use: bump it, add a migration step that upgrades old files on read (persisted on next
-  write), and add a migration test.
+- Files carry `schemaVersion`. The format is the same as the earlier TypeScript version's (files are
+  interchangeable). Apps not yet in use (todos) change the format freely, without migrations. Once an app is
+  in use: bump it, add a migration step that upgrades old files on read (persisted on next write), and add a
+  migration test.
 - Writes take a lockfile, validate the whole file, then atomically rename into place (see
-  `todos/core/src/jsonFile.ts`). TUI, CLI and agents (via MCP) may write concurrently.
-- Dates are local `YYYY-MM-DD` strings; timestamps are ISO strings.
-- User-facing errors are thrown as one app-level error class (e.g. `TodoError`); adapters show these
-  and let other errors crash.
+  `todos/core/json_file.py`). UI, CLI and agents (via MCP) may write concurrently.
+- Dates are local `YYYY-MM-DD` strings; timestamps are UTC ISO strings with milliseconds (`to_iso`).
+- Records are plain dicts with camelCase keys, exactly as stored and as returned by MCP / `--json`.
+  Store methods take snake_case keyword arguments.
+- User-facing errors are raised as one app-level exception (e.g. `TodoError`); adapters show these and let
+  other errors crash. Validation collects every problem and joins the messages with `; `.
 
 ## Gotchas
-- **Never let tests touch the real `~/.corgiops`.** `bunfig.toml` preloads `test-setup.ts`, which points
-  `CORGIOPS_HOME` at a temp dir. Tests should still pass an explicit temp `dir` to the app's store.
+- **Never let tests touch the real `~/.corgiops`.** `scripts/test.py` points `CORGIOPS_HOME` at a temp dir
+  before discovery. Tests should still pass an explicit temp `dir` to the app's store.
 - Inject the clock into stores in tests that depend on "today". Use local-noon dates
-  (`new Date(2026, 9, 3, 12)`) so results don't depend on time zone.
-- Callers (CLI especially) pass optional fields as explicit `undefined`. Core must treat that as "not
-  given", never spread it over defaults.
-- TUI tests use `testRender` from `@opentui/react/test-utils`, then set
-  `globalThis.IS_REACT_ACT_ENVIRONMENT = false` because store I/O resolves outside `act()`.
-  Wait for UI with a time-based `see()` helper (see `todos/tui/src/App.test.tsx`), not `waitForFrame`
-  (which counts render passes and doesn't give async work time). Wait for text that only exists in the target screen;
-  e.g. a task title is visible in both the details form and the list.
-- In TUI forms read values from widget refs (`input.value`, `textarea.plainText`) at submit time, not from
-  React state, to avoid stale values right after typing.
-- `useKeyboard` handlers are global: every mounted handler sees every key, so gate on the current mode.
+  (`datetime(2026, 10, 3, 12)`) so results don't depend on time zone.
+- Optional store arguments: `None` means "not given" (callers pass them straight through), except where
+  `None` is meaningful; then the default is the `UNSET` sentinel (e.g. `parent_id=None` clears the parent).
+- UI tests: one shared `Tk` per run, a `Toplevel` per test (Tk 9 on macOS crashes when a new `Tk` follows a
+  destroyed one). The window must be mapped: Tk only delivers clicks to windows on screen. Drive keys through
+  `App.handle_key(Key(...))`, type by inserting into `screen.focused_widget()`, and read the screen with the
+  test's `frame()` (text of all laid-out labels and inputs).
+- UI keys: the app puts its bindtag first on every widget (`App.install_keys`, call it after adding widgets)
+  so keys reach `handle_key` before Tk's text bindings; returning True swallows the key. Match printable keys
+  on `key.char`, not the keysym (keyboard layouts differ).
+- In UI forms read values from the widgets at save time, never from cached state.
+- Don't name methods on tkinter widget subclasses after `Misc` methods (`register`, `keys`, `config`...).
 
 ## Conventions
-- Match existing style: no semicolons, double quotes, 2-space indent, short comments only where the
-  why isn't obvious.
+- Match existing style: 4-space indent, double quotes, type hints, line length ~120, short comments only
+  where the why isn't obvious (see CONTRIBUTION.md).
 - Don't commit unless the user asks; the user reviews before committing.
